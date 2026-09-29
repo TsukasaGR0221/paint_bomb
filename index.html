@@ -1,0 +1,3401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ペイント・ボム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        html, body { 
+            margin: 0; 
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #020617; /* slate-950 */
+            overflow: hidden; 
+            touch-action: none; /* スマホでのスクロールやピンチズーム防止 */
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 1920x1080 固定横画面コンテナ */
+        #game-viewport {
+            width: 1920px;
+            height: 1080px;
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+            transform-origin: center center;
+            background-color: #020617;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+        }
+
+        /* アニメーション用 */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .animate-float {
+            animation: float 2s ease-in-out infinite;
+        }
+
+        /* 終了10秒前の画面赤点滅アニメーション */
+        @keyframes dangerFlash {
+            0%, 100% {
+                background: radial-gradient(circle at center, rgba(239, 68, 68, 0) 30%, rgba(239, 68, 68, 0.4) 100%);
+                box-shadow: inset 0 0 100px rgba(239, 68, 68, 0.6);
+                opacity: 0.25;
+            }
+            50% {
+                background: radial-gradient(circle at center, rgba(239, 68, 68, 0.2) 20%, rgba(239, 68, 68, 0.75) 100%);
+                box-shadow: inset 0 0 180px rgba(239, 68, 68, 0.95);
+                opacity: 0.95;
+            }
+        }
+        .animate-danger-blink {
+            animation: dangerFlash 0.5s ease-in-out infinite;
+        }
+
+        /* カウントダウン数字ポップインアニメーション（高い視認性を維持） */
+        @keyframes countdownPop {
+            0% {
+                transform: scale(1.8);
+                opacity: 0;
+            }
+            15% {
+                transform: scale(1.08);
+                opacity: 1;
+            }
+            30% {
+                transform: scale(1.0);
+                opacity: 1;
+            }
+            85% {
+                transform: scale(1.0);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(0.96);
+                opacity: 0.95;
+            }
+        }
+        .animate-countdown-pop {
+            animation: countdownPop 0.95s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+        }
+
+        /* カウントダウンテキスト用 漆黒の極太アウトライン（袋文字） */
+        .countdown-text-stroke {
+            -webkit-text-stroke: 14px #020617;
+            paint-order: stroke fill;
+            text-shadow: 0 4px 10px rgba(0, 0, 0, 0.8);
+        }
+        .countdown-subtext-stroke {
+            -webkit-text-stroke: 4px #020617;
+            paint-order: stroke fill;
+            text-shadow: 0 0 25px rgba(0, 0, 0, 0.95), 0 5px 15px rgba(0, 0, 0, 0.9);
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- 1920x1080 固定横画面ビューポート -->
+    <div id="game-viewport">
+
+        <!-- ゲームキャンバス (1920x1080 固定解像度) -->
+        <canvas id="gameCanvas" width="1920" height="1080" class="absolute inset-0 block"></canvas>
+
+        <!-- 画面下中央 全画面ボタン（コンパクト表示） -->
+        <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-[60] pointer-events-auto flex items-center">
+            <button id="btn-fullscreen" class="bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-2 rounded-full border border-slate-700 hover:border-slate-500 text-sm font-bold shadow-md transition-all flex items-center gap-2 hover:scale-105 active:scale-95 backdrop-blur-sm min-w-[120px] justify-center cursor-pointer">
+                <span id="fullscreen-icon" class="text-base leading-none">⛶</span> <span id="fullscreen-text" class="tracking-wider">全画面</span>
+            </button>
+        </div>
+
+        <!-- ゲーム内UIレイヤー -->
+        <div id="in-game-ui" class="absolute inset-0 pointer-events-none z-20">
+
+            <!-- 中央上部 タイマー ＆ 操作ボタン（左: 設定ボタン / 中央: タイマー / 右: タイトルに戻るボタン） -->
+            <div class="absolute top-5 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center gap-5 z-30">
+                <!-- 設定ボタン (タイマーの左側) -->
+                <button id="btn-in-game-settings" class="w-[160px] bg-slate-900/85 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-3 rounded-full border-2 border-slate-600 hover:border-slate-400 text-base font-bold shadow-[0_4px_15px_rgba(0,0,0,0.5)] transition-all hidden flex items-center justify-center gap-2 hover:scale-105 active:scale-95 backdrop-blur-md cursor-pointer">
+                    <span class="text-xl leading-none">⚙️</span> <span class="tracking-wider">設定</span>
+                </button>
+
+                <!-- タイマー -->
+                <div class="bg-slate-900/80 px-12 py-3 rounded-3xl border-4 border-slate-600 shadow-2xl backdrop-blur-md flex flex-col items-center min-w-[200px]">
+                    <div id="timer" class="text-7xl font-black text-white drop-shadow-[0_4px_6px_rgba(0,0,0,0.8)] leading-none">60</div>
+                </div>
+
+                <!-- タイトルに戻るボタン (タイマーの右側) -->
+                <button id="btn-back-title" class="w-[160px] bg-slate-900/85 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-3 rounded-full border-2 border-slate-600 hover:border-slate-400 text-base font-bold shadow-[0_4px_15px_rgba(0,0,0,0.5)] transition-all hidden flex items-center justify-center gap-2 hover:scale-105 active:scale-95 backdrop-blur-md cursor-pointer">
+                    <span class="text-xl leading-none">🏠</span> <span class="tracking-wider">タイトル</span>
+                </button>
+            </div>
+
+            <!-- 1P ステータスパネル (画面左上: 緑 / Qキー) -->
+            <div id="panel-p1" class="absolute left-6 top-6 w-[380px] pointer-events-auto bg-slate-900/85 p-5 rounded-3xl border-2 border-emerald-500/60 shadow-2xl backdrop-blur-md flex flex-col transition-all">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"></span>
+                        <h2 class="text-4xl text-emerald-400 font-black tracking-wider">1P</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="badge-p1" class="text-sm font-black text-emerald-300 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-400/50">Qキー</span>
+                        <div class="text-5xl leading-none text-white font-black drop-shadow-md" id="score-p1">0%</div>
+                    </div>
+                </div>
+                <!-- HP Bar -->
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
+                    <div id="hp-p1" class="bg-gradient-to-r from-emerald-600 to-emerald-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                </div>
+                <!-- Bombs -->
+                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p1">💣💣💣</div>
+                <!-- 操作ミニガイド -->
+                <div id="guide-p1" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
+                    <div><span class="text-emerald-400 font-black">Q 短押し:</span> 右折</div>
+                    <div><span class="text-emerald-400 font-black">Q 長押し:</span> ボム設置</div>
+                </div>
+            </div>
+
+            <!-- 2P ステータスパネル (画面右上: 赤 / Rキー) -->
+            <div id="panel-p2" class="absolute right-6 top-6 w-[380px] pointer-events-auto bg-slate-900/85 p-5 rounded-3xl border-2 border-red-500/60 shadow-2xl backdrop-blur-md flex flex-col transition-all">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]"></span>
+                        <h2 class="text-4xl text-red-400 font-black tracking-wider">2P</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="badge-p2" class="text-sm font-black text-red-300 bg-red-950/80 px-3 py-1 rounded-full border border-red-400/50">Rキー</span>
+                        <div class="text-5xl leading-none text-white font-black drop-shadow-md" id="score-p2">0%</div>
+                    </div>
+                </div>
+                <!-- HP Bar -->
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
+                    <div id="hp-p2" class="bg-gradient-to-r from-red-600 to-red-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                </div>
+                <!-- Bombs -->
+                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p2">💣💣💣</div>
+                <!-- 操作ミニガイド -->
+                <div id="guide-p2" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
+                    <div><span class="text-red-400 font-black">R 短押し:</span> 右折</div>
+                    <div><span class="text-red-400 font-black">R 長押し:</span> ボム設置</div>
+                </div>
+            </div>
+
+            <!-- 3P ステータスパネル (画面左下: 青 / Uキー) -->
+            <div id="panel-p3" class="absolute left-6 bottom-6 w-[380px] pointer-events-auto bg-slate-900/85 p-5 rounded-3xl border-2 border-blue-500/60 shadow-2xl backdrop-blur-md flex flex-col transition-all">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-4 h-4 rounded-full bg-blue-500 shadow-[0_0_10px_#3b82f6]"></span>
+                        <h2 class="text-4xl text-blue-400 font-black tracking-wider">3P</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="badge-p3" class="text-sm font-black text-blue-300 bg-blue-950/80 px-3 py-1 rounded-full border border-blue-400/50">Uキー</span>
+                        <div class="text-5xl leading-none text-white font-black drop-shadow-md" id="score-p3">0%</div>
+                    </div>
+                </div>
+                <!-- HP Bar -->
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
+                    <div id="hp-p3" class="bg-gradient-to-r from-blue-600 to-blue-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                </div>
+                <!-- Bombs -->
+                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p3">💣💣💣</div>
+                <!-- 操作ミニガイド -->
+                <div id="guide-p3" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
+                    <div><span class="text-blue-400 font-black">U 短押し:</span> 右折</div>
+                    <div><span class="text-blue-400 font-black">U 長押し:</span> ボム設置</div>
+                </div>
+            </div>
+
+            <!-- 4P ステータスパネル (画面右下: 黄 / Pキー) -->
+            <div id="panel-p4" class="absolute right-6 bottom-6 w-[380px] pointer-events-auto bg-slate-900/85 p-5 rounded-3xl border-2 border-amber-500/60 shadow-2xl backdrop-blur-md flex flex-col transition-all">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-4 h-4 rounded-full bg-amber-500 shadow-[0_0_10px_#f59e0b]"></span>
+                        <h2 class="text-4xl text-amber-400 font-black tracking-wider">4P</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="badge-p4" class="text-sm font-black text-amber-300 bg-amber-950/80 px-3 py-1 rounded-full border border-amber-400/50">Pキー</span>
+                        <div class="text-5xl leading-none text-white font-black drop-shadow-md" id="score-p4">0%</div>
+                    </div>
+                </div>
+                <!-- HP Bar -->
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
+                    <div id="hp-p4" class="bg-gradient-to-r from-amber-600 to-amber-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                </div>
+                <!-- Bombs -->
+                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p4">💣💣💣</div>
+                <!-- 操作ミニガイド -->
+                <div id="guide-p4" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
+                    <div><span class="text-amber-400 font-black">P 短押し:</span> 右折</div>
+                    <div><span class="text-amber-400 font-black">P 長押し:</span> ボム設置</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 終了10秒前 画面赤点滅オーバーレイ -->
+        <div id="danger-overlay" class="absolute inset-0 pointer-events-none z-30 opacity-0 transition-opacity duration-300"></div>
+
+        <!-- カウントダウン表示オーバーレイ (開始3秒前 / 終了3秒前) -->
+        <div id="countdown-overlay" class="absolute inset-0 pointer-events-none z-40 flex flex-col items-center justify-center hidden">
+            <!-- 文字背後にほぼ隠れる極小ダークオーラ背景（限界まで縮小） -->
+            <div class="absolute w-[180px] h-[140px] rounded-full bg-slate-950/60 blur-md -z-10 pointer-events-none"></div>
+
+            <div id="countdown-text" class="font-black text-[250px] leading-none select-none tracking-wider countdown-text-stroke">
+                3
+            </div>
+        </div>
+
+        <!-- タイトル画面オーバーレイ (1920x1080) -->
+        <div id="title-screen" class="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-between pt-8 pb-20 px-8 pointer-events-auto transition-opacity duration-500">
+            <!-- タイトルロゴ -->
+            <h1 class="text-9xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-yellow-400 to-red-400 tracking-widest drop-shadow-[0_10px_35px_rgba(0,0,0,0.9)] text-center leading-none whitespace-nowrap mt-2">ペイント・ボム</h1>
+            
+            <!-- 操作説明 (各キーと操作方法) -->
+            <div class="text-center px-4 w-full max-w-[1760px]">
+                <div class="bg-slate-900/85 border-4 border-slate-600 rounded-3xl p-5 px-10 shadow-2xl backdrop-blur-md flex flex-row items-center justify-between">
+                    <!-- キー一覧 -->
+                    <div class="flex items-center gap-6">
+                        <span class="text-2xl font-black text-slate-300">操作キー:</span>
+                        <div class="flex gap-4 font-black">
+                            <span class="px-6 py-2.5 rounded-2xl bg-emerald-600 text-white shadow-lg border border-emerald-400/50 flex items-center gap-2.5">
+                                <span class="text-base text-emerald-200 font-bold">1P(緑/左上)</span> <span class="text-3xl font-black">Q</span>
+                            </span>
+                            <span class="px-6 py-2.5 rounded-2xl bg-red-600 text-white shadow-lg border border-red-400/50 flex items-center gap-2.5">
+                                <span class="text-base text-red-200 font-bold">2P(赤/右上)</span> <span class="text-3xl font-black">R</span>
+                            </span>
+                            <span class="px-6 py-2.5 rounded-2xl bg-blue-600 text-white shadow-lg border border-blue-400/50 flex items-center gap-2.5">
+                                <span class="text-base text-blue-200 font-bold">3P(青/左下)</span> <span class="text-3xl font-black">U</span>
+                            </span>
+                            <span class="px-6 py-2.5 rounded-2xl bg-amber-600 text-white shadow-lg border border-amber-400/50 flex items-center gap-2.5">
+                                <span class="text-base text-amber-200 font-bold">4P(黄/右下)</span> <span class="text-3xl font-black">P</span>
+                            </span>
+                        </div>
+                    </div>
+                    <!-- アクション -->
+                    <div class="flex items-center gap-10 text-slate-100 text-2xl font-bold">
+                        <div class="flex items-center gap-3.5"><span class="px-4 py-1.5 rounded-xl bg-yellow-500 text-slate-950 font-black text-base shadow">短押し</span> <span>右折 (時計回り)</span></div>
+                        <div class="flex items-center gap-3.5"><span class="px-4 py-1.5 rounded-xl bg-yellow-500 text-slate-950 font-black text-base shadow">長押し</span> <span>ボム設置 (0.5秒)</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 対戦メンバー設定エリア (1P + 2P〜4P) -->
+            <div class="flex flex-col items-center bg-slate-900/85 border-2 border-slate-700/80 rounded-3xl p-6 px-8 shadow-2xl backdrop-blur-md w-full max-w-[1760px]">
+                <div class="flex items-center justify-between w-full mb-4 px-1">
+                    <span class="text-3xl font-black text-white flex items-center gap-3.5">
+                        <span class="text-4xl">👥</span> <span>対戦メンバー (クリックで プレイヤー / CPU / お休み 切替)</span>
+                    </span>
+                    <span id="player-count-badge" class="bg-gradient-to-r from-emerald-600 to-blue-600 text-white font-black text-2xl px-8 py-2 rounded-full border border-emerald-400/40 shadow-lg tracking-wider">
+                        4人対戦 (プレイヤー4人)
+                    </span>
+                </div>
+                
+                <div class="grid grid-cols-4 gap-6 w-full">
+                    <!-- 1P: プレイヤー (緑 / Qキー) -->
+                    <div class="bg-emerald-950/70 p-6 rounded-3xl border-2 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all flex flex-col items-center gap-3">
+                        <div class="flex items-center gap-4">
+                            <!-- ミニフェイスアイコン -->
+                            <div class="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center border-2 border-white/60 shadow-[0_0_10px_#10b981]">
+                                <div class="flex gap-2 items-center">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col text-left">
+                                <span class="text-4xl font-black text-white leading-tight">1P</span>
+                                <span class="text-base text-emerald-300 font-bold">緑色 / 左上</span>
+                            </div>
+                        </div>
+                        <div class="mt-1 px-6 py-2 rounded-full bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 text-lg font-black tracking-wider flex items-center gap-2">
+                            <span class="text-xl">🎮</span> <span>Qキー操作</span>
+                        </div>
+                    </div>
+
+                    <!-- 2P: スロット (赤 / Rキー) -->
+                    <button id="btn-slot-2" class="bg-red-950/70 hover:bg-red-900/80 text-red-300 p-6 rounded-3xl border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)] transition-all flex flex-col items-center gap-3 hover:scale-105 active:scale-95 cursor-pointer">
+                        <div class="flex items-center gap-4">
+                            <div class="w-14 h-14 rounded-full bg-red-500 flex items-center justify-center border-2 border-white/60 shadow-[0_0_10px_#ef4444]">
+                                <div class="flex gap-2 items-center">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col text-left">
+                                <span class="text-4xl font-black text-white leading-tight">2P</span>
+                                <span class="text-base text-red-300/80 font-bold">赤色 / 右上</span>
+                            </div>
+                        </div>
+                        <div id="status-slot-2" class="mt-1 px-6 py-2 rounded-full bg-red-500/50 border border-white text-white text-lg font-black tracking-wider flex items-center gap-2">
+                            <span class="text-xl">🎮</span> <span>Rキー操作</span>
+                        </div>
+                    </button>
+
+                    <!-- 3P: スロット (青 / Uキー) -->
+                    <button id="btn-slot-3" class="bg-blue-950/70 hover:bg-blue-900/80 text-blue-300 p-6 rounded-3xl border-2 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.6)] transition-all flex flex-col items-center gap-3 hover:scale-105 active:scale-95 cursor-pointer">
+                        <div class="flex items-center gap-4">
+                            <div class="w-14 h-14 rounded-full bg-blue-500 flex items-center justify-center border-2 border-white/60 shadow-[0_0_10px_#3b82f6]">
+                                <div class="flex gap-2 items-center">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col text-left">
+                                <span class="text-4xl font-black text-white leading-tight">3P</span>
+                                <span class="text-base text-blue-300 font-bold">青色 / 左下</span>
+                            </div>
+                        </div>
+                        <div id="status-slot-3" class="mt-1 px-6 py-2 rounded-full bg-blue-500/50 border border-white text-white text-lg font-black tracking-wider flex items-center gap-2">
+                            <span class="text-xl">🎮</span> <span>Uキー操作</span>
+                        </div>
+                    </button>
+
+                    <!-- 4P: スロット (黄 / Pキー) -->
+                    <button id="btn-slot-4" class="bg-amber-950/70 hover:bg-amber-900/80 text-amber-300 p-6 rounded-3xl border-2 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.6)] transition-all flex flex-col items-center gap-3 hover:scale-105 active:scale-95 cursor-pointer">
+                        <div class="flex items-center gap-4">
+                            <div class="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center border-2 border-white/60 shadow-[0_0_10px_#f59e0b]">
+                                <div class="flex gap-2 items-center">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                    <span class="w-2.5 h-2.5 rounded-full bg-white flex items-center justify-center"><span class="w-1 h-1 rounded-full bg-slate-900 block"></span></span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col text-left">
+                                <span class="text-4xl font-black text-white leading-tight">4P</span>
+                                <span class="text-base text-amber-300/80 font-bold">黄色 / 右下</span>
+                            </div>
+                        </div>
+                        <div id="status-slot-4" class="mt-1 px-6 py-2 rounded-full bg-amber-500/50 border border-white text-white text-lg font-black tracking-wider flex items-center gap-2">
+                            <span class="text-xl">🎮</span> <span>Pキー操作</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 設定トグル群 (横画面向けに横並び配置) -->
+            <div class="flex flex-row items-start justify-center gap-8 w-full max-w-[1760px]">
+                <!-- Auto Bomb Toggle -->
+                <div class="flex flex-col items-center">
+                    <button id="btn-auto-bomb" class="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-8 py-4 rounded-full border-4 border-slate-600 text-2xl font-black shadow-lg transition-all flex items-center gap-3.5 hover:scale-105 active:scale-95 backdrop-blur-sm min-w-[280px] justify-center cursor-pointer">
+                        <span class="text-3xl leading-none">💣</span> <span class="tracking-wider" id="text-auto-bomb">オートボム: オフ</span>
+                    </button>
+                    
+                    <!-- Auto Bomb Interval Slider -->
+                    <div id="container-autobomb-slider" class="w-72 flex flex-col items-center mt-2.5 hidden opacity-0 transition-opacity duration-300">
+                        <label class="text-base text-yellow-400 font-black mb-1 tracking-wider drop-shadow-md flex items-center gap-2">
+                            ⏱️ 設置間隔: <span id="interval-display" class="text-white text-lg">3.0秒</span>
+                        </label>
+                        <input type="range" id="slider-autobomb-interval" min="1.0" max="5.0" step="0.5" value="3.0" class="w-full h-3 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
+                        <div class="w-full flex justify-between text-slate-400 text-sm mt-1 font-bold px-1">
+                            <span>1.0秒</span>
+                            <span>5.0秒</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Guide Arrow Toggle -->
+                <div class="flex flex-col items-center">
+                    <button id="btn-guide-arrow" class="bg-slate-800/80 hover:bg-slate-800 text-yellow-400 px-8 py-4 rounded-full border-4 border-yellow-500 text-2xl font-black shadow-[0_0_20px_rgba(234,179,8,0.4)] transition-all flex items-center gap-3.5 hover:scale-105 active:scale-95 backdrop-blur-sm min-w-[280px] justify-center cursor-pointer">
+                        <span class="text-3xl leading-none">➡️</span> <span class="tracking-wider" id="text-guide-arrow">進行ガイド: オン</span>
+                    </button>
+                </div>
+
+                <!-- Infinite Bomb Toggle -->
+                <div class="flex flex-col items-center">
+                    <button id="btn-infinite-bomb" class="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-8 py-4 rounded-full border-4 border-slate-600 text-2xl font-black shadow-lg transition-all flex items-center gap-3.5 hover:scale-105 active:scale-95 backdrop-blur-sm min-w-[280px] justify-center cursor-pointer">
+                        <span class="text-3xl leading-none">♾️</span> <span class="tracking-wider" id="text-infinite-bomb">爆弾無限: オフ</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- BGM & SE 音量 ＆ 移動速度 ＆ リセット設定バー -->
+            <div class="flex flex-row items-center justify-center gap-7 bg-slate-900/85 border-2 border-slate-700/80 rounded-full px-8 py-3 shadow-2xl backdrop-blur-md">
+                <!-- BGM音量スライダー -->
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl select-none">🎵</span>
+                    <span class="text-2xl font-black text-slate-200">BGM:</span>
+                    <input type="range" id="slider-bgm" min="0" max="100" value="50" class="w-36 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-blue-500 shadow-inner">
+                    <span id="text-bgm-val" class="text-2xl font-black text-blue-400 w-16 text-right select-none">50%</span>
+                </div>
+
+                <div class="w-0.5 h-8 bg-slate-700"></div>
+
+                <!-- SE音量スライダー -->
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl select-none">🔊</span>
+                    <span class="text-2xl font-black text-slate-200">SE:</span>
+                    <input type="range" id="slider-se" min="0" max="100" value="70" class="w-36 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
+                    <span id="text-se-val" class="text-2xl font-black text-yellow-400 w-16 text-right select-none">70%</span>
+                </div>
+
+                <div class="w-0.5 h-8 bg-slate-700"></div>
+
+                <!-- プレイヤー移動速度スライダー -->
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl select-none">🏃</span>
+                    <span class="text-2xl font-black text-slate-200">プレイヤー速度:</span>
+                    <input type="range" id="slider-speed" min="50" max="200" step="10" value="100" class="w-36 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-emerald-400 shadow-inner">
+                    <span id="text-speed-val" class="text-2xl font-black text-emerald-400 w-20 text-right select-none">100%</span>
+                </div>
+
+                <div class="w-0.5 h-8 bg-slate-700"></div>
+
+                <!-- 全て初期値に戻すボタン -->
+                <button id="btn-reset-settings-title" class="px-5 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-2 border-slate-600 hover:border-slate-500 text-lg font-black transition-all flex items-center gap-2 hover:scale-105 active:scale-95 cursor-pointer shadow-md">
+                    <span class="text-xl">🔄</span> <span>全て初期値に戻す</span>
+                </button>
+            </div>
+
+            <!-- スタートボタン -->
+            <button id="btn-start-game" class="px-36 py-6 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white rounded-full font-black text-6xl shadow-[0_15px_50px_rgba(59,130,246,0.7)] transition-all hover:scale-105 active:scale-95 border-4 border-blue-300/60 tracking-widest cursor-pointer mb-2">スタート</button>
+        </div>
+
+        <!-- ゲームオーバー オーバーレイ (1920x1080) -->
+        <div id="overlay" class="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto hidden transition-opacity duration-500">
+            <h2 id="result-text" class="text-8xl font-black mb-3 drop-shadow-2xl tracking-tighter text-center leading-tight"></h2>
+            <p id="result-subtext" class="text-3xl text-slate-300 mb-6 font-bold text-center"></p>
+            
+            <!-- ランキング一覧コンテナ -->
+            <div id="result-ranking" class="flex flex-col gap-3 mb-8 w-full max-w-2xl bg-slate-900/80 p-5 rounded-3xl border-2 border-slate-700 shadow-2xl backdrop-blur-sm">
+                <!-- 動的にランキング項目が挿入される -->
+            </div>
+
+            <!-- アクションボタン群 (もう一度あそぶ / タイトルに戻る) -->
+            <div class="flex items-center justify-center gap-8">
+                <button id="btn-restart" class="px-20 py-5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white rounded-full font-black text-4xl shadow-[0_15px_40px_rgba(59,130,246,0.6)] transition-all hover:scale-105 active:scale-95 border-4 border-blue-300/50 tracking-wider flex items-center justify-center gap-3 cursor-pointer">
+                    <span class="text-4xl leading-none">🔄</span>
+                    <span>もう一度あそぶ</span>
+                </button>
+
+                <button id="btn-result-to-title" class="px-14 py-5 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full font-black text-3xl border-4 border-slate-600 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3 cursor-pointer shadow-xl tracking-wider">
+                    <span class="text-3xl leading-none">🏠</span>
+                    <span>タイトルに戻る</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ポーズ（一時停止）オーバーレイ (1920x1080, 全画面解除時表示) -->
+        <div id="pause-overlay" class="absolute inset-0 z-[70] bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto hidden transition-opacity duration-300">
+            <!-- ポーズバッジ -->
+            <div class="flex items-center gap-3 bg-yellow-500/20 text-yellow-400 border-2 border-yellow-500/50 px-8 py-2.5 rounded-full font-black text-2xl tracking-widest mb-6 animate-pulse">
+                <span>⏸️</span> <span>一時停止中</span>
+            </div>
+
+            <h2 class="text-6xl font-black mb-4 text-white drop-shadow-[0_4px_15px_rgba(0,0,0,0.8)] tracking-tight text-center">
+                全画面表示が解除されました
+            </h2>
+
+            <p class="text-2xl text-slate-300 mb-6 font-bold text-center max-w-2xl leading-relaxed">
+                プレイを続けるには、全画面表示に戻してください。<br>
+                <span class="text-yellow-400 text-lg font-normal">画面のどこかをクリックするか、下のボタンを押してください。</span>
+            </p>
+
+            <!-- ポーズ画面用 音量設定バー -->
+            <div class="flex flex-row items-center justify-center gap-8 bg-slate-900/90 border border-slate-700 rounded-full px-8 py-3 shadow-xl backdrop-blur-md mb-8">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🎵</span>
+                    <span class="text-xl font-bold text-slate-200">BGM:</span>
+                    <input type="range" id="slider-pause-bgm" min="0" max="100" value="50" class="w-36 h-3 bg-slate-700 rounded-lg cursor-pointer accent-blue-500 shadow-inner">
+                    <span id="text-pause-bgm-val" class="text-xl font-black text-blue-400 w-14 text-right">50%</span>
+                </div>
+                <div class="w-0.5 h-6 bg-slate-700"></div>
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🔊</span>
+                    <span class="text-xl font-bold text-slate-200">SE:</span>
+                    <input type="range" id="slider-pause-se" min="0" max="100" value="70" class="w-36 h-3 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
+                    <span id="text-pause-se-val" class="text-xl font-black text-yellow-400 w-14 text-right">70%</span>
+                </div>
+            </div>
+
+            <!-- アクションボタン群 -->
+            <div class="flex flex-col items-center gap-5">
+                <button id="btn-resume-fullscreen" class="px-16 py-6 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white rounded-full font-black text-3xl shadow-[0_10px_30px_rgba(59,130,246,0.6)] transition-all hover:scale-105 active:scale-95 border-4 border-blue-300/50 flex items-center gap-4 cursor-pointer">
+                    <span class="text-4xl leading-none">⛶</span>
+                    <span class="tracking-wider">全画面表示に戻して再開</span>
+                </button>
+
+                <button id="btn-pause-to-title" class="bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 px-8 py-3 rounded-full border-2 border-slate-600 text-lg font-bold shadow-md transition-all flex items-center gap-2 hover:scale-105 active:scale-95 cursor-pointer mt-2">
+                    <span class="text-xl leading-none">🏠</span>
+                    <span class="tracking-wider">タイトル画面へ戻る</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ゲーム中 設定画面 (1920x1080 画面いっぱいにフルスクリーン表示, z-[75]) -->
+        <div id="settings-modal" class="absolute inset-0 z-[75] bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-between py-10 px-12 pointer-events-auto hidden transition-opacity duration-300">
+            
+            <!-- 1. ヘッダー (大見出し ＆ リセットボタン) -->
+            <div class="flex items-center justify-between w-full max-w-[1760px] border-b-2 border-slate-700/60 pb-5 px-4">
+                <div class="w-72"></div>
+                <div class="flex items-center justify-center gap-5">
+                    <span class="text-7xl leading-none">⚙️</span>
+                    <h1 class="text-7xl font-black text-white tracking-widest drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]">ゲーム設定</h1>
+                </div>
+                <!-- 全て初期値に戻すボタン -->
+                <button id="btn-reset-settings-modal" class="w-72 py-4 px-6 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full font-black text-2xl border-2 border-slate-600 hover:border-slate-500 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3 cursor-pointer shadow-lg tracking-wider">
+                    <span class="text-2xl leading-none">🔄</span>
+                    <span>全て初期値に戻す</span>
+                </button>
+            </div>
+
+            <!-- 2. メインコンテンツ領域 (横幅いっぱいにゆったり配置) -->
+            <div class="w-full max-w-[1760px] flex flex-col gap-8 flex-1 justify-center my-4">
+                
+                <!-- 音量設定セクション -->
+                <div class="bg-slate-900/85 border-2 border-slate-700/80 rounded-3xl p-8 px-12 shadow-2xl backdrop-blur-md flex flex-col gap-6">
+                    <div class="flex items-center gap-3.5 border-b border-slate-700/60 pb-3">
+                        <span class="text-4xl">🔊</span>
+                        <h2 class="text-3xl font-black text-white tracking-wider">音量設定</h2>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-12">
+                        <!-- BGM音量 -->
+                        <div class="flex items-center justify-between bg-slate-800/80 px-10 py-6 rounded-2xl border border-slate-600/60 shadow-lg">
+                            <div class="flex items-center gap-4">
+                                <span class="text-5xl select-none">🎵</span>
+                                <span class="text-3xl font-black text-slate-200">BGM:</span>
+                            </div>
+                            <div class="flex items-center gap-6">
+                                <input type="range" id="slider-settings-bgm" min="0" max="100" value="50" class="w-72 h-4 bg-slate-700 rounded-lg cursor-pointer accent-blue-500 shadow-inner">
+                                <span id="text-settings-bgm-val" class="text-3xl font-black text-blue-400 w-24 text-right select-none">50%</span>
+                            </div>
+                        </div>
+
+                        <!-- SE音量 -->
+                        <div class="flex items-center justify-between bg-slate-800/80 px-10 py-6 rounded-2xl border border-slate-600/60 shadow-lg">
+                            <div class="flex items-center gap-4">
+                                <span class="text-5xl select-none">🔊</span>
+                                <span class="text-3xl font-black text-slate-200">SE:</span>
+                            </div>
+                            <div class="flex items-center gap-6">
+                                <input type="range" id="slider-settings-se" min="0" max="100" value="70" class="w-72 h-4 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
+                                <span id="text-settings-se-val" class="text-3xl font-black text-yellow-400 w-24 text-right select-none">70%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ゲームプレイ設定セクション -->
+                <div class="bg-slate-900/85 border-2 border-slate-700/80 rounded-3xl p-8 px-12 shadow-2xl backdrop-blur-md flex flex-col gap-6">
+                    <div class="flex items-center gap-3.5 border-b border-slate-700/60 pb-3">
+                        <span class="text-4xl">🎮</span>
+                        <h2 class="text-3xl font-black text-white tracking-wider">ゲームプレイ設定</h2>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-8">
+                        <!-- 爆弾無限モード -->
+                        <div class="flex flex-col items-center justify-between bg-slate-800/80 p-6 rounded-2xl border border-slate-600/60 min-h-[190px] shadow-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="text-4xl">♾️</span>
+                                <span class="text-2xl font-black text-white">爆弾無限モード</span>
+                            </div>
+                            <button id="btn-settings-infinite-bomb" class="w-full py-4 rounded-2xl border-4 border-slate-600 bg-slate-800 text-slate-300 text-2xl font-black transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-md">
+                                オフ
+                            </button>
+                        </div>
+
+                        <!-- 進行ガイド -->
+                        <div class="flex flex-col items-center justify-between bg-slate-800/80 p-6 rounded-2xl border border-slate-600/60 min-h-[190px] shadow-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="text-4xl">➡️</span>
+                                <span class="text-2xl font-black text-white">進行ガイド</span>
+                            </div>
+                            <button id="btn-settings-guide-arrow" class="w-full py-4 rounded-2xl border-4 border-yellow-500 bg-slate-800 text-yellow-400 text-2xl font-black shadow-[0_0_20px_rgba(234,179,8,0.4)] transition-all hover:scale-105 active:scale-95 cursor-pointer">
+                                オン
+                            </button>
+                        </div>
+
+                        <!-- オートボム -->
+                        <div class="flex flex-col items-center justify-between bg-slate-800/80 p-6 rounded-2xl border border-slate-600/60 min-h-[190px] shadow-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="text-4xl">💣</span>
+                                <span class="text-2xl font-black text-white">オートボム</span>
+                            </div>
+                            <div class="w-full flex flex-col items-center gap-3">
+                                <button id="btn-settings-auto-bomb" class="w-full py-4 rounded-2xl border-4 border-slate-600 bg-slate-800 text-slate-300 text-2xl font-black transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-md">
+                                    オフ
+                                </button>
+                                <!-- オートボム設置間隔スライダー -->
+                                <div id="container-settings-autobomb-slider" class="w-full flex flex-col items-center hidden opacity-0 transition-opacity duration-300">
+                                    <div class="flex items-center justify-between w-full text-base font-bold text-yellow-400 mb-1">
+                                        <span>設置間隔:</span>
+                                        <span id="settings-interval-display" class="text-white text-lg font-black">3.0秒</span>
+                                    </div>
+                                    <input type="range" id="slider-settings-autobomb-interval" min="1.0" max="5.0" step="0.5" value="3.0" class="w-full h-3 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- プレイヤー移動速度設定 -->
+                    <div class="flex items-center justify-between bg-slate-800/80 px-10 py-5 rounded-2xl border border-slate-600/60 shadow-lg mt-1">
+                        <div class="flex items-center gap-4">
+                            <span class="text-5xl select-none">🏃</span>
+                            <div class="flex flex-col">
+                                <span class="text-3xl font-black text-white">プレイヤー移動速度</span>
+                                <span class="text-lg text-slate-400 font-bold">操作プレイヤーの基本移動スピード（デフォルト: 100%）</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-6">
+                            <input type="range" id="slider-settings-speed" min="50" max="200" step="10" value="100" class="w-80 h-4 bg-slate-700 rounded-lg cursor-pointer accent-emerald-400 shadow-inner">
+                            <span id="text-settings-speed-val" class="text-3xl font-black text-emerald-400 w-28 text-right select-none">100%</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 3. アクションボタン群 (大画面フッター) -->
+            <div class="flex items-center justify-center gap-8 w-full max-w-[1760px] pt-2">
+                <!-- ゲームに戻る -->
+                <button id="btn-settings-resume" class="flex-1 max-w-[480px] py-6 px-10 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-full font-black text-4xl shadow-[0_15px_40px_rgba(16,185,129,0.5)] transition-all hover:scale-105 active:scale-95 border-4 border-emerald-300/60 flex items-center justify-center gap-4 cursor-pointer tracking-wider">
+                    <span class="text-4xl leading-none">▶️</span>
+                    <span>ゲームに戻る</span>
+                </button>
+
+                <!-- リトライボタン -->
+                <button id="btn-settings-retry" class="flex-1 max-w-[480px] py-6 px-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-full font-black text-4xl shadow-[0_15px_40px_rgba(245,158,11,0.5)] transition-all hover:scale-105 active:scale-95 border-4 border-amber-300/60 flex items-center justify-center gap-4 cursor-pointer tracking-wider">
+                    <span class="text-4xl leading-none">🔄</span>
+                    <span>リトライ</span>
+                </button>
+
+                <!-- タイトルへ戻る -->
+                <button id="btn-settings-to-title" class="py-6 px-12 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full font-black text-3xl border-4 border-slate-600 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3 cursor-pointer shadow-xl tracking-wider">
+                    <span class="text-3xl leading-none">🏠</span>
+                    <span>タイトル画面へ</span>
+                </button>
+            </div>
+
+        </div>
+
+    </div>
+
+<script>
+    // 1920x1080 固定解像度設定 & スケーリング
+    const SCREEN_WIDTH = 1920;
+    const SCREEN_HEIGHT = 1080;
+    const gameViewport = document.getElementById('game-viewport');
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // ウィンドウサイズに応じて1920x1080の比率（16:9）を保ちながら画面中央に最大化フィット
+    function fitGameViewport() {
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+        const scale = Math.min(winW / SCREEN_WIDTH, winH / SCREEN_HEIGHT);
+        gameViewport.style.transform = `scale(${scale})`;
+    }
+
+    window.addEventListener('resize', fitGameViewport);
+    window.addEventListener('orientationchange', fitGameViewport);
+    document.addEventListener('fullscreenchange', fitGameViewport);
+    document.addEventListener('webkitfullscreenchange', fitGameViewport);
+    fitGameViewport();
+
+    // フルスクリーン制御ロジック
+    function enterFullScreen() {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            const el = document.documentElement;
+            if (el.requestFullscreen) {
+                el.requestFullscreen().catch(() => {});
+            } else if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen();
+            } else if (el.msRequestFullscreen) {
+                el.msRequestFullscreen();
+            }
+        }
+    }
+
+    function toggleFullScreen() {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            enterFullScreen();
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen().catch(() => {});
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        }
+    }
+
+    // 画面をクリック（またはタップ）したら全画面表示にする
+    window.addEventListener('click', enterFullScreen);
+    window.addEventListener('touchstart', enterFullScreen, { passive: true });
+
+    // ポーズ（一時停止）状態フラグ
+    let isGamePaused = false;
+
+    function pauseGame() {
+        if (!isGameRunning || isGamePaused) return;
+        isGamePaused = true;
+        pauseBGM();
+        for (let s = 1; s <= 4; s++) {
+            if (typeof keyStates !== 'undefined' && keyStates[s]) keyStates[s].isDown = false;
+        }
+        const pauseOverlay = document.getElementById('pause-overlay');
+        if (pauseOverlay) {
+            pauseOverlay.classList.remove('hidden');
+        }
+    }
+
+    function resumeGame() {
+        if (!isGamePaused) return;
+        isGamePaused = false;
+        resumeBGM();
+        lastTime = 0; // 再開時にdtが跳ね上がるのを防ぐ
+        const pauseOverlay = document.getElementById('pause-overlay');
+        if (pauseOverlay) {
+            pauseOverlay.classList.add('hidden');
+        }
+    }
+
+    // フルスクリーン状態変更時にボタン表示を更新 & 全画面解除時のポーズ処理
+    function updateFullscreenUI() {
+        const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+        const icon = document.getElementById('fullscreen-icon');
+        const text = document.getElementById('fullscreen-text');
+        if (icon && text) {
+            icon.innerText = isFS ? '✖' : '⛶';
+            text.innerText = isFS ? '全画面解除' : '全画面';
+        }
+        fitGameViewport();
+
+        // 全画面が解除されたら、ゲーム中であれば一時停止してメッセージを表示
+        if (!isFS) {
+            if (isGameRunning) {
+                pauseGame();
+            }
+        } else {
+            // 全画面に戻ったら、ポーズ中であれば自動で再開
+            if (isGamePaused) {
+                resumeGame();
+            }
+        }
+    }
+
+    document.addEventListener('fullscreenchange', updateFullscreenUI);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenUI);
+
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    if (btnFullscreen) {
+        btnFullscreen.addEventListener('click', (e) => {
+            e.stopPropagation(); // 画面全体のclickリスナーによる二重呼び出しを防止
+            toggleFullScreen();
+        });
+    }
+
+    // ポーズオーバーレイのクリックで全画面復帰
+    const pauseOverlay = document.getElementById('pause-overlay');
+    if (pauseOverlay) {
+        pauseOverlay.addEventListener('click', (e) => {
+            if (e.target.closest('#btn-pause-to-title')) return; // タイトルへ戻るボタンなら除外
+            enterFullScreen();
+        });
+    }
+
+    // 「全画面表示に戻して再開」ボタン
+    const btnResumeFs = document.getElementById('btn-resume-fullscreen');
+    if (btnResumeFs) {
+        btnResumeFs.addEventListener('click', (e) => {
+            e.stopPropagation();
+            enterFullScreen();
+        });
+    }
+
+    // ポーズ画面内の「タイトル画面へ戻る」ボタン
+    const btnPauseToTitle = document.getElementById('btn-pause-to-title');
+    if (btnPauseToTitle) {
+        btnPauseToTitle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            goToTitle();
+        });
+    }
+
+    // 設定モーダル状態フラグ
+    let isSettingsOpen = false;
+
+    function openSettingsModal() {
+        if (!isGameRunning || isSettingsOpen) return;
+        isSettingsOpen = true;
+        playSound('ui_click');
+        pauseBGM();
+        // キー入力状態のリセット
+        for (let s = 1; s <= 4; s++) {
+            if (typeof keyStates !== 'undefined' && keyStates[s]) keyStates[s].isDown = false;
+        }
+        if (typeof syncAllSettingsUI === 'function') {
+            syncAllSettingsUI();
+        }
+        const modal = document.getElementById('settings-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+
+    function closeSettingsModal() {
+        if (!isSettingsOpen) return;
+        isSettingsOpen = false;
+        playSound('ui_click');
+        const modal = document.getElementById('settings-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        // ゲーム実行中かつポーズ画面やカウントダウン中でなければBGM再開
+        if (isGameRunning && !isGamePaused && !isStartCountdownActive) {
+            resumeBGM();
+        }
+        lastTime = 0; // 再開時にdtが跳ね上がるのを防ぐ
+    }
+
+    // ゲーム中の「⚙️ 設定」ボタン
+    const btnInGameSettings = document.getElementById('btn-in-game-settings');
+    if (btnInGameSettings) {
+        btnInGameSettings.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openSettingsModal();
+        });
+    }
+
+    // 設定モーダル内の「▶️ ゲームに戻る」ボタン
+    const btnSettingsResume = document.getElementById('btn-settings-resume');
+    if (btnSettingsResume) {
+        btnSettingsResume.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeSettingsModal();
+        });
+    }
+
+    // 設定モーダル内の「🔄 リトライ」ボタン
+    const btnSettingsRetry = document.getElementById('btn-settings-retry');
+    if (btnSettingsRetry) {
+        btnSettingsRetry.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeSettingsModal();
+            startGame();
+        });
+    }
+
+    // 設定モーダル内の「🏠 タイトル」ボタン
+    const btnSettingsToTitle = document.getElementById('btn-settings-to-title');
+    if (btnSettingsToTitle) {
+        btnSettingsToTitle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeSettingsModal();
+            goToTitle();
+        });
+    }
+
+    // 設定モーダル自体のクリックでの全画面復帰イベント誤作動防止
+    const settingsModal = document.getElementById('settings-modal');
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    }
+
+    // Game Constants
+    const GRID_WIDTH = 13; 
+    const GRID_HEIGHT = 11; 
+    const TILE_SIZE = 80; // 13 * 80 = 1040px, 11 * 80 = 880px
+    
+    // 画面中央に配置するオフセット (1920x1080基準)
+    const offsetX = (SCREEN_WIDTH - (GRID_WIDTH * TILE_SIZE)) / 2; // 440px
+    const offsetY = 140; // 上部140px（タイマー領域）、下部60px余白
+
+    const TILE_WALL = 1;   
+    const TILE_BLOCK = 2;  
+    const TILE_EMPTY = 0;
+    const TILE_FLOOR = 0; 
+
+    // プレイヤー＆CPUのカラー設定（1P:緑, 2P:赤, 3P:青, 4P:黄）
+    const PLAYER_COLORS = {
+        1: { name: '1P', shortName: '1P', fill: '#10b981', rgb: '16, 185, 129', textClass: 'text-emerald-400', badgeClass: 'bg-emerald-600', colorName: '緑', keyName: 'Q' },
+        2: { name: '2P', shortName: '2P', fill: '#ef4444', rgb: '239, 68, 68', textClass: 'text-red-400', badgeClass: 'bg-red-600', colorName: '赤', keyName: 'R' },
+        3: { name: '3P', shortName: '3P', fill: '#3b82f6', rgb: '59, 130, 246', textClass: 'text-blue-400', badgeClass: 'bg-blue-600', colorName: '青', keyName: 'U' },
+        4: { name: '4P', shortName: '4P', fill: '#f59e0b', rgb: '245, 158, 11', textClass: 'text-amber-400', badgeClass: 'bg-amber-600', colorName: '黄', keyName: 'P' }
+    };
+    const COLOR_P1 = PLAYER_COLORS[1].fill;
+    const COLOR_BG = '#1e293b'; // slate-800
+
+    // スロット設定: 'human' | 'cpu' | 'off' (デフォルトはプレイヤー4人対戦)
+    const slotModes = {
+        1: 'human',
+        2: 'human',
+        3: 'human',
+        4: 'human'
+    };
+
+    const SLOT_CONFIGS = [
+        { slot: 1, colorId: 1, defaultName: '1P', spawnX: 1, spawnY: 1, startDirIndex: 2, key: 'q', keyDisplay: 'Qキー' }, // 左上・下向き
+        { slot: 2, colorId: 2, defaultName: '2P', spawnX: GRID_WIDTH - 2, spawnY: 1, startDirIndex: 2, key: 'r', keyDisplay: 'Rキー' },               // 右上・下向き
+        { slot: 3, colorId: 3, defaultName: '3P', spawnX: 1, spawnY: GRID_HEIGHT - 2, startDirIndex: 0, key: 'u', keyDisplay: 'Uキー' },                // 左下・上向き
+        { slot: 4, colorId: 4, defaultName: '4P', spawnX: GRID_WIDTH - 2, spawnY: GRID_HEIGHT - 2, startDirIndex: 0, key: 'p', keyDisplay: 'Pキー' }  // 右下・上向き
+    ];
+
+    // Game State Variables
+    let grid = [];
+    let paintGrid = []; 
+    let totalFloorTiles = 0;
+    
+    let player = null;
+    let allCharacters = [];
+    let charactersBySlot = {};
+    let bombs = [];
+    let explosions = [];
+    let items = [];
+    let floatingTexts = [];
+    
+    let gameTime = 60; 
+    let isGameRunning = false;
+    let lastTime = 0;
+    let scoreP1 = 0;
+    let itemSpawnTimer = 0;
+
+    // カウントダウン＆演出関連変数
+    let startCountdownTimer = 0; // 開始3秒前カウントダウン用タイマー
+    let isStartCountdownActive = false; // 開始カウントダウン中フラグ
+    let lastStartSecond = -1; // 開始カウント音/表示切り替え用
+    let lastEndSecond = -1; // 終了カウント音/表示切り替え用
+    let isTimeUpPending = false; // タイムアップ演出中フラグ
+    let isDangerAlertTriggered = false; // 終了10秒前突入時の1回きり警告音用
+
+    // オーディオ設定＆ノード管理
+    let audioCtx = null;
+    let bgmGainNode = null;
+    let seGainNode = null;
+    let noiseBuffer = null;
+
+    let bgmVolume = 0.5; // 初期50%
+    let seVolume = 0.7;  // 初期70%
+
+    // 音階定義
+    const NOTE_FREQ = {
+        'C3': 130.81, 'D3': 146.83, 'E3': 164.81, 'F3': 174.61, 'G3': 196.00, 'A3': 220.00, 'B3': 246.94,
+        'C4': 261.63, 'D4': 293.66, 'E4': 329.63, 'F4': 349.23, 'G4': 392.00, 'A4': 440.00, 'B4': 493.88,
+        'C5': 523.25, 'D5': 587.33, 'E5': 659.25, 'F5': 698.46, 'G5': 783.99, 'A5': 880.00, 'B5': 987.77,
+        'C6': 1046.50, 'D6': 1174.66, 'E6': 1318.51
+    };
+
+    function initNoiseBuffer() {
+        if (!audioCtx || noiseBuffer) return;
+        const bufferSize = audioCtx.sampleRate * 1.0;
+        noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+    }
+
+    function initAudio() {
+        if (!audioCtx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+                audioCtx = new AudioCtx();
+
+                bgmGainNode = audioCtx.createGain();
+                bgmGainNode.gain.setValueAtTime(bgmVolume, audioCtx.currentTime);
+                bgmGainNode.connect(audioCtx.destination);
+
+                seGainNode = audioCtx.createGain();
+                seGainNode.gain.setValueAtTime(seVolume, audioCtx.currentTime);
+                seGainNode.connect(audioCtx.destination);
+
+                initNoiseBuffer();
+            }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    // BGM シーケンサー変数
+    let bgmCurrentTheme = null; // 'title' | 'battle' | null
+    let bgmIsPlaying = false;
+    let bgmStep = 0;
+    let bgmNextNoteTime = 0;
+    let bgmTimerId = null;
+    let bgmBpm = 138;
+
+    // バトルBGM (8小節 = 128ステップ、BPM 138)
+    // 構成: F -> G -> Em -> Am -> F -> G -> C -> C
+    const BATTLE_BASS = [
+        'F3', null, 'F3', null, 'C3', null, 'C3', null, 'F3', null, 'F3', null, 'C3', null, 'E3', null,
+        'G3', null, 'G3', null, 'D3', null, 'D3', null, 'G3', null, 'G3', null, 'D3', null, 'F3', null,
+        'E3', null, 'E3', null, 'B3', null, 'B3', null, 'E3', null, 'E3', null, 'B3', null, 'D3', null,
+        'A3', null, 'A3', null, 'E3', null, 'E3', null, 'A3', null, 'A3', null, 'G3', null, 'G3', null,
+        'F3', null, 'F3', null, 'C3', null, 'C3', null, 'F3', null, 'F3', null, 'C3', null, 'E3', null,
+        'G3', null, 'G3', null, 'D3', null, 'D3', null, 'G3', null, 'G3', null, 'D3', null, 'F3', null,
+        'C3', null, 'C3', null, 'G3', null, 'G3', null, 'C3', null, 'C3', null, 'G3', null, 'B3', null,
+        'C3', null, 'C3', null, 'G3', null, 'C4', null, 'G3', null, 'E3', null, 'C3', null, null, null
+    ];
+
+    const BATTLE_MELODY = [
+        'C5', null, 'A4', null, 'C5', null, 'D5', null, 'C5', null, 'A4', null, 'F4', null, 'A4', null,
+        'D5', null, 'B4', null, 'D5', null, 'E5', null, 'D5', null, 'B4', null, 'G4', null, 'B4', null,
+        'E5', null, 'C5', null, 'E5', null, 'G5', null, 'E5', null, 'C5', null, 'G4', null, 'C5', null,
+        'A5', null, 'E5', null, 'C5', null, 'E5', null, 'A5', null, 'G5', null, 'E5', null, 'D5', null,
+        'C5', 'D5', 'C5', 'A4', 'C5', 'D5', 'E5', null, 'F5', null, 'E5', null, 'D5', null, 'C5', null,
+        'D5', 'E5', 'D5', 'B4', 'D5', 'E5', 'F5', null, 'G5', null, 'F5', null, 'E5', null, 'D5', null,
+        'E5', null, 'G5', null, 'C6', null, 'B5', null, 'A5', null, 'G5', null, 'E5', null, 'D5', null,
+        'C5', null, 'E5', null, 'G5', null, 'C6', null, 'C6', null, null, null, null, null, null, null
+    ];
+
+    // タイトルBGM (8小節 = 128ステップ、BPM 114)
+    // 構成: C -> G -> Am -> F -> C -> G -> F -> C
+    const TITLE_BASS = [
+        'C3', null, 'G3', null, 'C3', null, 'G3', null, 'C3', null, 'G3', null, 'C3', null, 'E3', null,
+        'G3', null, 'D3', null, 'G3', null, 'D3', null, 'G3', null, 'D3', null, 'G3', null, 'B3', null,
+        'A3', null, 'E3', null, 'A3', null, 'E3', null, 'A3', null, 'E3', null, 'A3', null, 'C4', null,
+        'F3', null, 'C3', null, 'F3', null, 'C3', null, 'F3', null, 'C3', null, 'F3', null, 'A3', null,
+        'C3', null, 'G3', null, 'C3', null, 'G3', null, 'C3', null, 'G3', null, 'C3', null, 'E3', null,
+        'G3', null, 'D3', null, 'G3', null, 'D3', null, 'G3', null, 'D3', null, 'G3', null, 'B3', null,
+        'F3', null, 'C3', null, 'F3', null, 'C3', null, 'F3', null, 'C3', null, 'F3', null, 'A3', null,
+        'C3', null, 'G3', null, 'C3', null, 'E3', null, 'C3', null, null, null, null, null, null, null
+    ];
+
+    const TITLE_MELODY = [
+        'G4', null, 'C5', null, 'E5', null, 'G5', null, 'E5', null, 'C5', null, 'D5', null, 'E5', null,
+        'D5', null, 'B4', null, 'G4', null, 'A4', null, 'B4', null, 'D5', null, 'C5', null, 'B4', null,
+        'C5', null, 'E5', null, 'A5', null, 'G5', null, 'E5', null, 'C5', null, 'D5', null, 'E5', null,
+        'D5', null, 'C5', null, 'A4', null, 'C5', null, 'D5', null, null, null, null, null, null, null,
+        'G4', null, 'C5', null, 'E5', null, 'G5', null, 'E5', null, 'C5', null, 'D5', null, 'E5', null,
+        'D5', null, 'B4', null, 'G4', null, 'A4', null, 'B4', null, 'C5', null, 'D5', null, 'E5', null,
+        'F5', null, 'E5', null, 'D5', null, 'C5', null, 'D5', null, 'E5', null, 'D5', null, 'B4', null,
+        'C5', null, 'G4', null, 'E4', null, 'G4', null, 'C5', null, null, null, null, null, null, null
+    ];
+
+    // リザルトBGM (8小節 = 128ステップ、BPM 120)
+    // 構成: C -> Em -> F -> G -> C -> Am -> F -> C
+    const RESULT_BASS = [
+        'C3', null, 'G3', null, 'C3', null, 'E3', null, 'C3', null, 'G3', null, 'C3', null, 'E3', null,
+        'E3', null, 'B3', null, 'E3', null, 'G3', null, 'E3', null, 'B3', null, 'E3', null, 'B3', null,
+        'F3', null, 'C3', null, 'F3', null, 'A3', null, 'F3', null, 'C3', null, 'F3', null, 'A3', null,
+        'G3', null, 'D3', null, 'G3', null, 'B3', null, 'G3', null, 'D3', null, 'G3', null, 'B3', null,
+        'C3', null, 'G3', null, 'C3', null, 'E3', null, 'C3', null, 'G3', null, 'C3', null, 'E3', null,
+        'A3', null, 'E3', null, 'A3', null, 'C4', null, 'A3', null, 'E3', null, 'A3', null, 'E3', null,
+        'F3', null, 'C3', null, 'F3', null, 'A3', null, 'G3', null, 'D3', null, 'G3', null, 'B3', null,
+        'C3', null, 'G3', null, 'C3', null, 'E3', null, 'C3', null, null, null, null, null, null, null
+    ];
+
+    const RESULT_MELODY = [
+        'C5', null, 'E5', null, 'G5', null, 'C6', null, 'G5', null, 'E5', null, 'C5', null, 'E5', null,
+        'B4', null, 'E5', null, 'G5', null, 'B5', null, 'G5', null, 'E5', null, 'B4', null, 'D5', null,
+        'C5', null, 'F5', null, 'A5', null, 'C6', null, 'A5', null, 'F5', null, 'C5', null, 'F5', null,
+        'D5', null, 'G5', null, 'B5', null, 'D6', null, 'B5', null, 'G5', null, 'D5', null, 'F5', null,
+        'E5', null, 'G5', null, 'C6', null, 'E6', null, 'D6', null, 'C6', null, 'B5', null, 'C6', null,
+        'C6', null, 'A5', null, 'E5', null, 'A5', null, 'C6', null, 'B5', null, 'A5', null, 'G5', null,
+        'A5', null, 'F5', null, 'A5', null, 'C6', null, 'B5', null, 'G5', null, 'D5', null, 'B4', null,
+        'C5', null, 'E5', null, 'G5', null, 'C6', null, 'C6', null, null, null, null, null, null, null
+    ];
+
+    function playSynthTone(freq, startTime, duration, type, gainVol) {
+        if (!audioCtx || !bgmGainNode || !freq) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, startTime);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(type === 'square' ? 2400 : 1600, startTime);
+
+            osc.connect(filter);
+            filter.connect(g);
+            g.connect(bgmGainNode);
+
+            g.gain.setValueAtTime(0.001, startTime);
+            g.gain.linearRampToValueAtTime(gainVol, startTime + 0.015);
+            g.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+            osc.start(startTime);
+            osc.stop(startTime + duration + 0.05);
+        } catch (e) {}
+    }
+
+    function playDrum(drumType, startTime) {
+        if (!audioCtx || !bgmGainNode) return;
+        try {
+            if (drumType === 'kick') {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.connect(g);
+                g.connect(bgmGainNode);
+                osc.frequency.setValueAtTime(130, startTime);
+                osc.frequency.exponentialRampToValueAtTime(35, startTime + 0.08);
+                g.gain.setValueAtTime(0.28, startTime);
+                g.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
+                osc.start(startTime);
+                osc.stop(startTime + 0.08);
+            } else if (drumType === 'snare') {
+                if (!noiseBuffer) return;
+                const src = audioCtx.createBufferSource();
+                src.buffer = noiseBuffer;
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(1400, startTime);
+                filter.Q.setValueAtTime(1.5, startTime);
+                const g = audioCtx.createGain();
+                src.connect(filter);
+                filter.connect(g);
+                g.connect(bgmGainNode);
+                g.gain.setValueAtTime(0.18, startTime);
+                g.gain.exponentialRampToValueAtTime(0.001, startTime + 0.1);
+                src.start(startTime);
+                src.stop(startTime + 0.1);
+            } else if (drumType === 'hihat') {
+                if (!noiseBuffer) return;
+                const src = audioCtx.createBufferSource();
+                src.buffer = noiseBuffer;
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.setValueAtTime(6500, startTime);
+                const g = audioCtx.createGain();
+                src.connect(filter);
+                filter.connect(g);
+                g.connect(bgmGainNode);
+                g.gain.setValueAtTime(0.1, startTime);
+                g.gain.exponentialRampToValueAtTime(0.001, startTime + 0.04);
+                src.start(startTime);
+                src.stop(startTime + 0.04);
+            }
+        } catch (e) {}
+    }
+
+    function scheduleBgmStep(theme, step, time, stepDuration) {
+        let melNote = null;
+        let bassNote = null;
+
+        if (theme === 'battle') {
+            melNote = BATTLE_MELODY[step];
+            bassNote = BATTLE_BASS[step];
+        } else if (theme === 'result') {
+            melNote = RESULT_MELODY[step];
+            bassNote = RESULT_BASS[step];
+        } else {
+            melNote = TITLE_MELODY[step];
+            bassNote = TITLE_BASS[step];
+        }
+
+        // メロディ演奏
+        if (melNote && NOTE_FREQ[melNote]) {
+            const wave = (theme === 'result') ? 'triangle' : 'square';
+            playSynthTone(NOTE_FREQ[melNote], time, stepDuration * 1.5, wave, 0.18);
+        }
+
+        // ベース演奏
+        if (bassNote && NOTE_FREQ[bassNote]) {
+            playSynthTone(NOTE_FREQ[bassNote], time, stepDuration * 1.8, 'triangle', 0.22);
+        }
+
+        // ドラム演奏（16ステップ周期）
+        const beatStep = step % 16;
+        if (beatStep === 0 || beatStep === 8) {
+            playDrum('kick', time);
+        }
+        if (beatStep === 4 || beatStep === 12) {
+            playDrum('snare', time);
+        }
+        if (beatStep % 2 === 0) {
+            playDrum('hihat', time);
+        }
+    }
+
+    function bgmScheduler() {
+        if (!audioCtx || !bgmIsPlaying) return;
+        const lookahead = 0.15;
+        const secondsPerStep = 60.0 / bgmBpm / 4;
+
+        while (bgmNextNoteTime < audioCtx.currentTime + lookahead) {
+            scheduleBgmStep(bgmCurrentTheme, bgmStep, bgmNextNoteTime, secondsPerStep);
+            bgmNextNoteTime += secondsPerStep;
+            bgmStep = (bgmStep + 1) % 128;
+        }
+    }
+
+    function startBGM(theme) {
+        initAudio();
+        if (bgmCurrentTheme === theme && bgmIsPlaying) return;
+
+        bgmCurrentTheme = theme;
+        if (theme === 'battle') {
+            bgmBpm = 138;
+        } else if (theme === 'result') {
+            bgmBpm = 120;
+        } else {
+            bgmBpm = 114;
+        }
+        bgmStep = 0;
+        bgmIsPlaying = true;
+        if (audioCtx) {
+            bgmNextNoteTime = audioCtx.currentTime + 0.05;
+        }
+
+        if (bgmTimerId) clearInterval(bgmTimerId);
+        bgmTimerId = setInterval(bgmScheduler, 25);
+    }
+
+    function stopBGM() {
+        bgmIsPlaying = false;
+        bgmCurrentTheme = null;
+        if (bgmTimerId) {
+            clearInterval(bgmTimerId);
+            bgmTimerId = null;
+        }
+    }
+
+    function pauseBGM() {
+        if (!bgmIsPlaying) return;
+        bgmIsPlaying = false;
+        if (bgmTimerId) {
+            clearInterval(bgmTimerId);
+            bgmTimerId = null;
+        }
+    }
+
+    function resumeBGM() {
+        if (!bgmCurrentTheme || bgmIsPlaying || !audioCtx) return;
+        bgmIsPlaying = true;
+        bgmNextNoteTime = audioCtx.currentTime + 0.05;
+        if (bgmTimerId) clearInterval(bgmTimerId);
+        bgmTimerId = setInterval(bgmScheduler, 25);
+    }
+
+    function setBgmTempo(newBpm) {
+        if (bgmBpm !== newBpm) {
+            bgmBpm = newBpm;
+        }
+    }
+
+    // 効果音 (SE) 再生関数
+    function playSound(type) {
+        if (!audioCtx || !seGainNode) return;
+        try {
+            const t = audioCtx.currentTime;
+
+            if (type === 'tick') {
+                // カウントダウン (3, 2, 1) ピッ
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, t);
+                gain.gain.setValueAtTime(0.25, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+                osc.start(t);
+                osc.stop(t + 0.15);
+            } else if (type === 'start') {
+                // ゲームスタート ポーン！
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(880, t);
+                osc.frequency.exponentialRampToValueAtTime(1760, t + 0.25);
+                gain.gain.setValueAtTime(0.35, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+                osc.start(t);
+                osc.stop(t + 0.5);
+            } else if (type === 'warn_tick') {
+                // 終了3秒前 ピッ
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(700, t);
+                gain.gain.setValueAtTime(0.25, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+                osc.start(t);
+                osc.stop(t + 0.18);
+            } else if (type === 'danger_alert') {
+                // 終了10秒前 警告ビープ
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(520, t);
+                gain.gain.setValueAtTime(0.25, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+                osc.start(t);
+                osc.stop(t + 0.3);
+            } else if (type === 'finish') {
+                // タイムアップ ホイッスル
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(1200, t);
+                osc.frequency.exponentialRampToValueAtTime(800, t + 0.4);
+                gain.gain.setValueAtTime(0.4, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+                osc.start(t);
+                osc.stop(t + 0.6);
+            } else if (type === 'turn') {
+                // 右折・方向転換音 (短いピュッ)
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, t);
+                osc.frequency.exponentialRampToValueAtTime(680, t + 0.05);
+                gain.gain.setValueAtTime(0.2, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+                osc.start(t);
+                osc.stop(t + 0.06);
+            } else if (type === 'bomb_drop') {
+                // ボム設置音 (低音のポフッ)
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(240, t);
+                osc.frequency.exponentialRampToValueAtTime(90, t + 0.1);
+                gain.gain.setValueAtTime(0.35, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+                osc.start(t);
+                osc.stop(t + 0.12);
+            } else if (type === 'explosion') {
+                // 爆弾爆発音 (ノイズ＋低音ドォーン)
+                if (noiseBuffer) {
+                    const noise = audioCtx.createBufferSource();
+                    noise.buffer = noiseBuffer;
+                    const filter = audioCtx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(1200, t);
+                    filter.frequency.exponentialRampToValueAtTime(150, t + 0.45);
+                    const nGain = audioCtx.createGain();
+                    noise.connect(filter);
+                    filter.connect(nGain);
+                    nGain.connect(seGainNode);
+                    nGain.gain.setValueAtTime(0.45, t);
+                    nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+                    noise.start(t);
+                    noise.stop(t + 0.45);
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(160, t);
+                osc.frequency.exponentialRampToValueAtTime(35, t + 0.45);
+                gain.gain.setValueAtTime(0.4, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+                osc.start(t);
+                osc.stop(t + 0.45);
+            } else if (type === 'item_get') {
+                // アイテム取得音 (キラキラ上昇音)
+                const pitches = [523.25, 659.25, 783.99, 1046.50];
+                pitches.forEach((freq, idx) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(seGainNode);
+                    osc.type = 'sine';
+                    const startTime = t + idx * 0.04;
+                    osc.frequency.setValueAtTime(freq, startTime);
+                    gain.gain.setValueAtTime(0.001, startTime);
+                    gain.gain.linearRampToValueAtTime(0.25, startTime + 0.01);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.09);
+                });
+            } else if (type === 'hit') {
+                // 被弾・ダウン音 (バシュッ)
+                if (noiseBuffer) {
+                    const noise = audioCtx.createBufferSource();
+                    noise.buffer = noiseBuffer;
+                    const filter = audioCtx.createBiquadFilter();
+                    filter.type = 'bandpass';
+                    filter.frequency.setValueAtTime(800, t);
+                    const nGain = audioCtx.createGain();
+                    noise.connect(filter);
+                    filter.connect(nGain);
+                    nGain.connect(seGainNode);
+                    nGain.gain.setValueAtTime(0.35, t);
+                    nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+                    noise.start(t);
+                    noise.stop(t + 0.2);
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(320, t);
+                osc.frequency.exponentialRampToValueAtTime(70, t + 0.2);
+                gain.gain.setValueAtTime(0.25, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+                osc.start(t);
+                osc.stop(t + 0.2);
+            } else if (type === 'ui_click') {
+                // ボタン操作音 (カチッ)
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, t);
+                gain.gain.setValueAtTime(0.18, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+                osc.start(t);
+                osc.stop(t + 0.04);
+            } else if (type === 'fanfare') {
+                // 勝利ファンファーレ (C5, E5, G5, C6)
+                const chords = [
+                    { f: 523.25, d: 0.14 },
+                    { f: 659.25, d: 0.14 },
+                    { f: 783.99, d: 0.14 },
+                    { f: 1046.50, d: 0.6 }
+                ];
+                let offset = 0;
+                chords.forEach(c => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(seGainNode);
+                    osc.type = 'triangle';
+                    const startTime = t + offset;
+                    osc.frequency.setValueAtTime(c.f, startTime);
+                    gain.gain.setValueAtTime(0.001, startTime);
+                    gain.gain.linearRampToValueAtTime(0.35, startTime + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + c.d);
+                    osc.start(startTime);
+                    osc.stop(startTime + c.d + 0.05);
+                    offset += (c.d === 0.6 ? 0.6 : 0.13);
+                });
+            }
+        } catch (e) {}
+    }
+
+    // カウントダウン表示制御（超高コントラスト・極太フチ取り）
+    function showCountdownDisplay(text, colorClass) {
+        const overlay = document.getElementById('countdown-overlay');
+        const cdText = document.getElementById('countdown-text');
+        if (!overlay || !cdText) return;
+
+        overlay.classList.remove('hidden');
+        cdText.innerText = text;
+
+        // 文字数に応じた迫力のフォントサイズ調整（数字は270px、英単語は160px）
+        const fontSizeClass = text.length <= 2 ? 'text-[270px]' : 'text-[160px]';
+
+        cdText.className = `font-black ${fontSizeClass} leading-none select-none tracking-wider countdown-text-stroke ${colorClass} animate-countdown-pop`;
+        // CSSアニメーションを毎回最初から再生させるリフロー
+        void cdText.offsetWidth;
+    }
+
+    function hideCountdownDisplay() {
+        const overlay = document.getElementById('countdown-overlay');
+        if (overlay) overlay.classList.add('hidden');
+    }
+
+    // 終了10秒前 画面赤点滅オーバーレイ & タイマー更新制御
+    function updateDangerFlash(remainingTime) {
+        const dangerOverlay = document.getElementById('danger-overlay');
+        const timerEl = document.getElementById('timer');
+        if (!dangerOverlay || !timerEl) return;
+
+        if (isGameRunning && !isStartCountdownActive && remainingTime <= 10.0 && remainingTime > 0) {
+            // 10秒前突入時の初回警告音
+            if (!isDangerAlertTriggered) {
+                isDangerAlertTriggered = true;
+                playSound('danger_alert');
+            }
+            // 終了10秒前: BGMテンポアップ (138 -> 172)
+            if (bgmCurrentTheme === 'battle') {
+                setBgmTempo(172);
+            }
+            // 赤点滅オーバーレイを有効化
+            if (!dangerOverlay.classList.contains('animate-danger-blink')) {
+                dangerOverlay.classList.remove('opacity-0');
+                dangerOverlay.classList.add('animate-danger-blink');
+            }
+            // タイマー数字も赤色点滅
+            timerEl.classList.add('text-red-500', 'animate-pulse');
+            timerEl.classList.remove('text-white');
+        } else {
+            // 通常テンポに戻す
+            if (bgmCurrentTheme === 'battle') {
+                setBgmTempo(138);
+            }
+            // 10秒より前、または終了後・タイトル画面では通常に戻す
+            dangerOverlay.classList.remove('animate-danger-blink');
+            dangerOverlay.classList.add('opacity-0');
+            timerEl.classList.remove('text-red-500', 'animate-pulse');
+            timerEl.classList.add('text-white');
+            if (remainingTime > 10.0) {
+                isDangerAlertTriggered = false;
+            }
+        }
+    }
+
+    function createCharacters() {
+        allCharacters = [];
+        charactersBySlot = {};
+        
+        SLOT_CONFIGS.forEach(cfg => {
+            const mode = slotModes[cfg.slot];
+            if (mode !== 'off') {
+                const isHuman = (mode === 'human');
+                const displayName = isHuman ? `${cfg.slot}P` : `CPU ${cfg.slot === 1 ? '' : cfg.slot}`;
+                const char = new Character(cfg.spawnX, cfg.spawnY, cfg.colorId, isHuman, displayName, cfg.startDirIndex);
+                char.slot = cfg.slot;
+                char.isHuman = isHuman;
+                allCharacters.push(char);
+                charactersBySlot[cfg.slot] = char;
+                if (cfg.slot === 1) {
+                    player = char;
+                }
+            }
+        });
+    }
+
+    function resizeCanvas() {
+        canvas.width = SCREEN_WIDTH;
+        canvas.height = SCREEN_HEIGHT;
+    }
+
+    // 操作設定＆状態変数
+    let isAutoBomb = false; // オートボムのON/OFF状態
+    let autoBombInterval = 3.0; // オートボムの設置間隔（秒）
+    let isGuideArrow = true; // 進行ガイドインジケーターのON/OFF状態
+    let isInfiniteBomb = false; // 爆弾無限モードのON/OFF状態
+    let playerSpeedMultiplier = 1.0; // プレイヤーの移動速度倍率（0.5〜2.0、デフォルト1.0）
+    const HOLD_THRESHOLD = 500; // 長押し判定のしきい値(ミリ秒)。0.5秒
+
+    const DIRS = [
+        { dx: 0, dy: -1 }, // 上
+        { dx: 1, dy: 0 },  // 右
+        { dx: 0, dy: 1 },  // 下
+        { dx: -1, dy: 0 }  // 左
+    ];
+
+    // スロットごとのキー入力管理（1P:Q, 2P:R, 3P:U, 4P:P）
+    const keyStates = {
+        1: { isDown: false, downTime: 0, holdTriggered: false },
+        2: { isDown: false, downTime: 0, holdTriggered: false },
+        3: { isDown: false, downTime: 0, holdTriggered: false },
+        4: { isDown: false, downTime: 0, holdTriggered: false }
+    };
+
+    function getSlotFromEvent(e) {
+        const key = e.key ? e.key.toLowerCase() : '';
+        if (e.code === 'KeyQ' || key === 'q') return 1;
+        if (e.code === 'KeyR' || key === 'r') return 2;
+        if (e.code === 'KeyU' || key === 'u') return 3;
+        if (e.code === 'KeyP' || key === 'p') return 4;
+        return null;
+    }
+
+    // キー入力リスナー (画面タップ操作は完全廃止)
+    window.addEventListener('keydown', (e) => {
+        const slot = getSlotFromEvent(e);
+        if (!slot) return;
+
+        // ゲーム未実行、ポーズ中、タイトル画面表示中、リザルト表示中、開始カウントダウン中、タイムアップ演出中は入力を無視
+        if (!isGameRunning || isGamePaused || isStartCountdownActive || isTimeUpPending) return;
+        const titleScreen = document.getElementById('title-screen');
+        if (titleScreen && !titleScreen.classList.contains('hidden')) return;
+        const overlay = document.getElementById('overlay');
+        if (overlay && !overlay.classList.contains('hidden')) return;
+
+        if (e.repeat) return;
+
+        const char = charactersBySlot[slot];
+        if (!char || !char.isHuman || char.respawnTimer > 0) return;
+
+        e.preventDefault();
+        keyStates[slot].isDown = true;
+        keyStates[slot].downTime = Date.now();
+        keyStates[slot].holdTriggered = false;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const slot = getSlotFromEvent(e);
+        if (!slot) return;
+
+        const ks = keyStates[slot];
+        if (!ks.isDown) return;
+
+        ks.isDown = false;
+        e.preventDefault();
+
+        if (!isGameRunning || isGamePaused || isStartCountdownActive || isTimeUpPending) return;
+
+        const char = charactersBySlot[slot];
+        if (char && char.isHuman && !ks.holdTriggered && char.respawnTimer <= 0) {
+            char.handleInput('tap'); // 短押し: 右折 (時計回り)
+        }
+    });
+
+    // 画面上に浮かび上がる演出テキスト（撃破ボーナス通知等）
+    class FloatingText {
+        constructor(x, y, text, color = '#facc15') {
+            this.x = x;
+            this.y = y;
+            this.text = text;
+            this.color = color;
+            this.timer = 1.2;
+            this.maxTimer = 1.2;
+        }
+
+        update(dt) {
+            this.timer -= dt;
+            this.y -= 40 * dt; // 上にフワッと上昇
+            return this.timer <= 0;
+        }
+
+        draw() {
+            const alpha = Math.max(0, Math.min(1, this.timer / 0.35));
+            ctx.save();
+            ctx.font = '900 24px "Noto Sans JP", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 漆黒の極太アウトライン
+            ctx.strokeStyle = `rgba(2, 6, 23, ${alpha * 0.95})`;
+            ctx.lineWidth = 6;
+            ctx.strokeText(this.text, this.x, this.y);
+            
+            // 文字本体
+            ctx.fillStyle = this.color;
+            ctx.globalAlpha = alpha;
+            ctx.fillText(this.text, this.x, this.y);
+            ctx.restore();
+        }
+    }
+
+    class ItemBombUp {
+        constructor(gridX, gridY) {
+            this.gridX = gridX;
+            this.gridY = gridY;
+            this.x = gridX * TILE_SIZE + TILE_SIZE / 2;
+            this.y = gridY * TILE_SIZE + TILE_SIZE / 2;
+            this.floatOffset = 0;
+            this.time = Math.random() * 10;
+        }
+
+        update(dt) {
+            this.time += dt;
+            this.floatOffset = Math.sin(this.time * 3) * (TILE_SIZE * 0.1);
+        }
+
+        draw() {
+            ctx.font = `${TILE_SIZE * 0.6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('💣', this.x, this.y + this.floatOffset);
+        }
+    }
+
+    class Bomb {
+        constructor(x, y, owner, range) {
+            this.x = x;
+            this.y = y;
+            this.gridX = Math.floor(x / TILE_SIZE);
+            this.gridY = Math.floor(y / TILE_SIZE);
+            this.owner = owner;
+            this.range = range;
+            this.timer = 2.0; 
+            this.color = PLAYER_COLORS[owner] ? PLAYER_COLORS[owner].fill : '#3b82f6';
+            this.radius = TILE_SIZE * 0.35;
+            this.pulse = 0;
+        }
+
+        update(dt) {
+            this.timer -= dt;
+            this.pulse += dt * 10;
+            if (this.timer <= 0) {
+                this.explode();
+                return true; 
+            }
+            return false;
+        }
+
+        explode() {
+            playSound('explosion');
+            explosions.push(new Explosion(this.gridX, this.gridY, this.owner));
+            
+            const dirs = [ [0, -1], [0, 1], [-1, 0], [1, 0] ];
+            for (let d of dirs) {
+                for (let i = 1; i <= this.range; i++) {
+                    const tx = this.gridX + d[0] * i;
+                    const ty = this.gridY + d[1] * i;
+                    
+                    if (tx < 0 || tx >= GRID_WIDTH || ty < 0 || ty >= GRID_HEIGHT) break;
+                    if (grid[ty][tx] === TILE_WALL) break;
+                    
+                    if (grid[ty][tx] === TILE_BLOCK) {
+                        grid[ty][tx] = TILE_EMPTY;
+                        explosions.push(new Explosion(tx, ty, this.owner));
+                        // ブロック破壊時に50%の確率で爆弾アイテムが出現（爆弾無限モード時は出現させない）
+                        if (!isInfiniteBomb && Math.random() < 0.5 && items.length < 12) {
+                            items.push(new ItemBombUp(tx, ty));
+                        }
+                        break; 
+                    }
+                    explosions.push(new Explosion(tx, ty, this.owner));
+                }
+            }
+        }
+
+        draw() {
+            const currentRadius = this.radius + Math.sin(this.pulse) * (TILE_SIZE * 0.05);
+            
+            // 黒いフチ（アウトライン）を追加して同化を防ぐ
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, currentRadius + (TILE_SIZE * 0.06), 0, Math.PI * 2);
+            ctx.fill();
+
+            // ボム本体の色
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // ハイライト（光沢）を明るく
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(this.x - currentRadius*0.3, this.y - currentRadius*0.3, currentRadius*0.3, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+
+    class Explosion {
+        constructor(gridX, gridY, owner) {
+            this.gridX = gridX;
+            this.gridY = gridY;
+            this.owner = owner;
+            this.timer = 0.5; 
+            this.maxTimer = 0.5;
+            
+            if (paintGrid[gridY] && paintGrid[gridY][gridX] !== undefined) {
+                paintGrid[gridY][gridX] = owner;
+            }
+        }
+
+        update(dt) {
+            this.timer -= dt;
+            return this.timer <= 0;
+        }
+
+        draw() {
+            const alpha = this.timer / this.maxTimer;
+            const x = this.gridX * TILE_SIZE;
+            const y = this.gridY * TILE_SIZE;
+            
+            const rgb = PLAYER_COLORS[this.owner] ? PLAYER_COLORS[this.owner].rgb : '59, 130, 246';
+            ctx.fillStyle = `rgba(${rgb}, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(x + TILE_SIZE/2, y + TILE_SIZE/2, TILE_SIZE * 0.45 * (1 + (1-alpha)), 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    class Character {
+        constructor(gridX, gridY, colorId, isPlayer, name, startDirIndex = 2) {
+            this.spawnGridX = gridX;
+            this.spawnGridY = gridY;
+            this.x = gridX * TILE_SIZE + TILE_SIZE / 2;
+            this.y = gridY * TILE_SIZE + TILE_SIZE / 2;
+            this.colorId = colorId;
+            this.isPlayer = isPlayer;
+            this.isHuman = isPlayer;
+            this.name = name || (isPlayer ? 'プレイヤー' : 'CPU');
+            this.color = PLAYER_COLORS[colorId] ? PLAYER_COLORS[colorId].fill : (isPlayer ? '#10b981' : '#ef4444'); 
+            
+            this.baseSpeedMultiplier = 0.5; // 白いマスでは遅い
+            this.radius = TILE_SIZE * 0.35;
+            
+            this.bombRange = 2;
+            this.bombs = 3; // 爆弾の初期数は3（使い切ると0になる）
+            
+            this.maxHp = 100;
+            this.hp = this.maxHp;
+            this.respawnTimer = 0; 
+
+            this.target = null;
+            this.moveTimer = 0;
+            
+            this.startDirIndex = startDirIndex;
+            this.dirIndex = startDirIndex; // 初期方向
+            this.isMoving = true;
+            this.autoBombTimer = autoBombInterval; // オートボムのタイマー初期値
+            
+            this.animationTime = 0; // アニメーション用のタイマー
+            this.slot = null;
+            this.scorePercent = 0;
+        }
+
+        handleInput(action) {
+            if (this.respawnTimer > 0) return;
+
+            if (action === 'tap') {
+                this.dirIndex = (this.dirIndex + 1) % 4; // 時計回りに90度右折
+                playSound('turn');
+            } else if (action === 'hold') {
+                // オートボムがオンの時は長押しでボムを置けない
+                if (!isAutoBomb) {
+                    this.placeBomb();
+                }
+            }
+        }
+
+        update(dt) {
+            this.animationTime += dt;
+            
+            if (this.respawnTimer > 0) {
+                this.respawnTimer -= dt;
+                if (this.respawnTimer <= 0) this.hp = this.maxHp; 
+                return; 
+            }
+
+            const gx = Math.floor(this.x / TILE_SIZE);
+            const gy = Math.floor(this.y / TILE_SIZE);
+            
+            const speedMultiplier = this.isHuman ? playerSpeedMultiplier : 1.0;
+            let currentSpeed = TILE_SIZE * this.baseSpeedMultiplier * speedMultiplier; 
+            let killerColorId = null;
+            
+            if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT) {
+                const currentTileColor = paintGrid[gy][gx];
+                if (currentTileColor === this.colorId) {
+                    currentSpeed = TILE_SIZE * this.baseSpeedMultiplier * 2.5 * speedMultiplier; // 自陣で速い
+                    this.hp += 15 * dt; // 自陣で回復
+                    if (this.hp > this.maxHp) this.hp = this.maxHp;
+                } else if (currentTileColor !== 0 && currentTileColor !== this.colorId) {
+                    this.hp -= 30 * dt; // 敵陣（自分の色でも未塗りでもないマス）でダメージ
+                    if (this.hp <= 0) {
+                        killerColorId = currentTileColor; // 相手のエリアダメージでリスポーン
+                    }
+                }
+            }
+
+            // 爆風ヒットによる即死（自分以外の爆風に当たったら）
+            for (let exp of explosions) {
+                if (exp.owner !== this.colorId && exp.gridX === gx && exp.gridY === gy) {
+                    this.hp = 0; 
+                    killerColorId = exp.owner; // 爆弾を当てられてリスポーン
+                    break;
+                }
+            }
+
+            if (this.hp <= 0) {
+                this.hp = 0;
+                const deathX = this.x;
+                const deathY = this.y;
+                this.die(killerColorId, deathX, deathY);
+                playSound('hit');
+                return;
+            }
+
+            // オートボムがONの場合、設定された秒数ごとに自動でボムを設置する
+            if (this.isHuman && isAutoBomb) {
+                this.autoBombTimer -= dt;
+                if (this.autoBombTimer <= 0) {
+                    this.placeBomb();
+                    this.autoBombTimer = autoBombInterval;
+                }
+            }
+
+            // アイテム取得判定
+            for (let i = items.length - 1; i >= 0; i--) {
+                if (items[i].gridX === gx && items[i].gridY === gy) {
+                    items.splice(i, 1);
+                    if (this.bombs < 8) this.bombs++; 
+                    playSound('item_get');
+                }
+            }
+
+            let dx = 0;
+            let dy = 0;
+
+            if (this.isHuman) {
+                dx = DIRS[this.dirIndex].dx;
+                dy = DIRS[this.dirIndex].dy;
+            } else {
+                // CPU Logic
+                this.moveTimer -= dt;
+                if (this.moveTimer <= 0) {
+                    this.moveTimer = 0.2 + Math.random() * 0.5;
+                    const dirs = [[0,-1], [0,1], [-1,0], [1,0]];
+                    const move = dirs[Math.floor(Math.random() * dirs.length)];
+                    this.target = { dx: move[0], dy: move[1] };
+                    
+                    if (Math.random() < 0.3) this.placeBomb();
+                }
+                if (this.target) {
+                    dx = this.target.dx;
+                    dy = this.target.dy;
+                }
+            }
+
+            if (dx !== 0 && dy !== 0) {
+                const length = Math.sqrt(dx*dx + dy*dy);
+                dx /= length;
+                dy /= length;
+            }
+
+            // スナッピング（通路中心線への自動補正）処理:
+            // 吸着感をプレイヤーがほとんど感じない極限まで弱めた補正（12*dtから1.5*dtへ大幅に低減）
+            const snapRate = Math.min(1, 1.5 * dt); 
+            if (dx !== 0 && dy === 0) {
+                const targetY = gy * TILE_SIZE + TILE_SIZE / 2;
+                const diffY = targetY - this.y;
+                if (Math.abs(diffY) > 0.5) {
+                    this.y += diffY * snapRate;
+                }
+            } else if (dy !== 0 && dx === 0) {
+                const targetX = gx * TILE_SIZE + TILE_SIZE / 2;
+                const diffX = targetX - this.x;
+                if (Math.abs(diffX) > 0.5) {
+                    this.x += diffX * snapRate;
+                }
+            }
+
+            const moveAmt = currentSpeed * dt;
+            let movedX = false;
+            let movedY = false;
+
+            if (dx !== 0) {
+                const newX = this.x + dx * moveAmt;
+                if (!this.checkCollision(newX, this.y)) {
+                    this.x = newX;
+                    movedX = true;
+                } else {
+                    // 正面が壁で前進できない時のみ、角での立ち往生を防ぐ最小限のスライド補正
+                    const targetY = gy * TILE_SIZE + TILE_SIZE / 2;
+                    const diffY = targetY - this.y;
+                    if (Math.abs(diffY) > 0.5) {
+                        const slideStep = Math.sign(diffY) * Math.min(Math.abs(diffY), moveAmt * 0.4);
+                        if (!this.checkCollision(this.x, this.y + slideStep)) {
+                            this.y += slideStep;
+                        }
+                    }
+                }
+            }
+            if (dy !== 0) {
+                const newY = this.y + dy * moveAmt;
+                if (!this.checkCollision(this.x, newY)) {
+                    this.y = newY;
+                    movedY = true;
+                } else {
+                    // 正面が壁で前進できない時のみ、角での立ち往生を防ぐ最小限のスライド補正
+                    const targetX = gx * TILE_SIZE + TILE_SIZE / 2;
+                    const diffX = targetX - this.x;
+                    if (Math.abs(diffX) > 0.5) {
+                        const slideStep = Math.sign(diffX) * Math.min(Math.abs(diffX), moveAmt * 0.4);
+                        if (!this.checkCollision(this.x + slideStep, this.y)) {
+                            this.x += slideStep;
+                        }
+                    }
+                }
+            }
+        }
+
+        die(killerColorId = null, deathX = this.x, deathY = this.y) {
+            this.respawnTimer = 3; 
+            this.x = this.spawnGridX * TILE_SIZE + TILE_SIZE / 2;
+            this.y = this.spawnGridY * TILE_SIZE + TILE_SIZE / 2;
+            this.isMoving = true; // 復活時に初期化
+            this.dirIndex = this.startDirIndex; // 復活時も初期方向に向かう
+            this.autoBombTimer = autoBombInterval; // 復活時にオートボムタイマーもリセット
+
+            // ボーナス処理: 爆弾を当てる、または自陣エリアダメージで敵をリスポーンさせた場合
+            if (killerColorId && killerColorId !== this.colorId) {
+                const killer = allCharacters.find(c => c.colorId === killerColorId);
+                if (killer) {
+                    // ボーナスとして爆弾を1個プレゼント (最大8個まで)
+                    if (killer.bombs < 8) {
+                        killer.bombs++;
+                    }
+                    playSound('item_get');
+
+                    // 撃破位置と獲得者の上にボーナステキストをフワッと表示
+                    floatingTexts.push(new FloatingText(deathX, deathY - 15, '💣+1 BONUS!', '#fde047'));
+                    if (killer.respawnTimer <= 0) {
+                        floatingTexts.push(new FloatingText(killer.x, killer.y - 25, '💣+1 GET!', '#fde047'));
+                    }
+                }
+            }
+        }
+
+        checkCollision(newX, newY) {
+            // 当たり判定のゆとり
+            const margin = this.radius * 0.5;
+            const left = Math.floor((newX - margin) / TILE_SIZE);
+            const right = Math.floor((newX + margin) / TILE_SIZE);
+            const top = Math.floor((newY - margin) / TILE_SIZE);
+            const bottom = Math.floor((newY + margin) / TILE_SIZE);
+
+            if (left < 0 || right >= GRID_WIDTH || top < 0 || bottom >= GRID_HEIGHT) return true;
+
+            for (let y = top; y <= bottom; y++) {
+                for (let x = left; x <= right; x++) {
+                    if (grid[y][x] === TILE_WALL || grid[y][x] === TILE_BLOCK) return true;
+                }
+            }
+
+            for (let b of bombs) {
+                const dist = Math.sqrt((newX - b.x)**2 + (newY - b.y)**2);
+                if (dist < this.radius + b.radius - 2) { 
+                    const currentDist = Math.sqrt((this.x - b.x)**2 + (this.y - b.y)**2);
+                    if (currentDist >= this.radius + b.radius - 2) return true; 
+                }
+            }
+            return false;
+        }
+
+        draw() {
+            if (this.respawnTimer > 0) {
+                if (Math.floor(this.respawnTimer * 8) % 2 === 0) return;
+                ctx.globalAlpha = 0.5; 
+            }
+
+            // 次に曲がる方向を示すインジケーター（半透明の矢印）
+            // 人間プレイヤーかつ生存時かつ設定がONの場合のみ描画
+            if (this.isHuman && this.respawnTimer <= 0 && isGuideArrow) {
+                const nextDirIndex = (this.dirIndex + 1) % 4; // 時計回りに90度
+                const nextDirX = DIRS[nextDirIndex].dx;
+                const nextDirY = DIRS[nextDirIndex].dy;
+                
+                // キャラクターから少し離れた位置に矢印を配置
+                const distance = TILE_SIZE * 0.7;
+                const arrowX = this.x + nextDirX * distance;
+                const arrowY = this.y + nextDirY * distance;
+                
+                // フワフワと前後に揺れるアニメーション
+                const floatAmount = Math.sin(this.animationTime * 8) * (TILE_SIZE * 0.08);
+                const animArrowX = arrowX + nextDirX * floatAmount;
+                const animArrowY = arrowY + nextDirY * floatAmount;
+
+                const angle = Math.atan2(nextDirY, nextDirX);
+                const size = TILE_SIZE * 0.2;
+                
+                ctx.beginPath();
+                // 矢印の形を描画（三角形）
+                ctx.moveTo(animArrowX + Math.cos(angle) * size, animArrowY + Math.sin(angle) * size);
+                ctx.lineTo(animArrowX + Math.cos(angle + Math.PI * 0.8) * size, animArrowY + Math.sin(angle + Math.PI * 0.8) * size);
+                ctx.lineTo(animArrowX + Math.cos(angle - Math.PI * 0.8) * size, animArrowY + Math.sin(angle - Math.PI * 0.8) * size);
+                ctx.closePath();
+
+                // アウトライン（フチ）を描画して視認性を高める
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.lineWidth = Math.max(1.5, TILE_SIZE * 0.05);
+                ctx.lineJoin = 'round';
+                ctx.stroke();
+
+                // プレイヤーのカラーで塗りつぶし
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.lineWidth = Math.max(2, TILE_SIZE * 0.05);
+            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.stroke();
+
+            // 進行方向の決定 (CPUの向きも計算)
+            let currentDirIndex = this.dirIndex;
+            if (!this.isHuman && this.target) {
+                if (this.target.dy === -1) currentDirIndex = 0;
+                else if (this.target.dx === 1) currentDirIndex = 1;
+                else if (this.target.dy === 1) currentDirIndex = 2;
+                else if (this.target.dx === -1) currentDirIndex = 3;
+            }
+
+            const faceDirX = DIRS[currentDirIndex].dx;
+            const faceDirY = DIRS[currentDirIndex].dy;
+            
+            // 顔の中心を進行方向に寄せる
+            const faceOffsetX = faceDirX * (TILE_SIZE * 0.12);
+            const faceOffsetY = faceDirY * (TILE_SIZE * 0.12);
+            
+            // 進行方向に対して垂直なベクトル（目の間隔用）
+            const perpX = faceDirY;
+            const perpY = -faceDirX;
+            
+            const eyeSpacing = TILE_SIZE * 0.11;
+            const eyeRadius = TILE_SIZE * 0.08;
+            
+            // 左右の目の位置を計算
+            const leftEyeX = this.x + faceOffsetX + perpX * eyeSpacing;
+            const leftEyeY = this.y + faceOffsetY + perpY * eyeSpacing;
+            const rightEyeX = this.x + faceOffsetX - perpX * eyeSpacing;
+            const rightEyeY = this.y + faceOffsetY - perpY * eyeSpacing;
+
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(leftEyeX, leftEyeY, eyeRadius, 0, Math.PI*2);
+            ctx.arc(rightEyeX, rightEyeY, eyeRadius, 0, Math.PI*2);
+            ctx.fill();
+            
+            const pupilRadius = TILE_SIZE * 0.04;
+            ctx.fillStyle = '#0f172a';
+            // 黒目をさらに進行方向へ少し寄せる
+            const pupilOffsetX = faceDirX * (TILE_SIZE * 0.03);
+            const pupilOffsetY = faceDirY * (TILE_SIZE * 0.03);
+            
+            ctx.beginPath();
+            ctx.arc(leftEyeX + pupilOffsetX, leftEyeY + pupilOffsetY, pupilRadius, 0, Math.PI*2);
+            ctx.arc(rightEyeX + pupilOffsetX, rightEyeY + pupilOffsetY, pupilRadius, 0, Math.PI*2);
+            ctx.fill();
+
+            // 進行方向を示す小さな矢印インジケーター（頭の縁）
+            if (this.isMoving || !this.isHuman) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.beginPath();
+                const arrowBaseX = this.x + faceDirX * (TILE_SIZE * 0.28);
+                const arrowBaseY = this.y + faceDirY * (TILE_SIZE * 0.28);
+                const angle = Math.atan2(faceDirY, faceDirX);
+                const size = TILE_SIZE * 0.12;
+                
+                ctx.moveTo(arrowBaseX + Math.cos(angle) * size, arrowBaseY + Math.sin(angle) * size);
+                ctx.lineTo(arrowBaseX + Math.cos(angle + Math.PI * 0.75) * size, arrowBaseY + Math.sin(angle + Math.PI * 0.75) * size);
+                ctx.lineTo(arrowBaseX + Math.cos(angle - Math.PI * 0.75) * size, arrowBaseY + Math.sin(angle - Math.PI * 0.75) * size);
+                ctx.fill();
+            }
+
+            // 「長押しチャージゲージ」の描画（ボム残数がある時、または爆弾無限モードの時。オートボム時は手動設置不可のため非表示）
+            const hasBombs = (isInfiniteBomb && this.isHuman) || this.bombs > 0;
+            const ks = this.slot ? keyStates[this.slot] : null;
+            if (this.isHuman && !isAutoBomb && ks && ks.isDown && !ks.holdTriggered && this.respawnTimer <= 0 && hasBombs) {
+                const elapsed = Date.now() - ks.downTime;
+                const progress = Math.min(elapsed / HOLD_THRESHOLD, 1.0);
+                
+                const gaugeRadius = this.radius + (TILE_SIZE * 0.2);
+                const gaugeWidth = Math.max(4, TILE_SIZE * 0.1);
+
+                // ゲージの背景（黒い半透明）を追加して、同色の床でも見やすくする
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, gaugeRadius, -Math.PI / 2, Math.PI * 1.5);
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)'; 
+                ctx.lineWidth = gaugeWidth + 2;
+                ctx.stroke();
+
+                // ゲージ本体（自分の色）
+                ctx.beginPath();
+                // -90度(真上)からスタートして時計回りに描画
+                ctx.arc(this.x, this.y, gaugeRadius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
+                ctx.strokeStyle = this.color; 
+                ctx.lineWidth = gaugeWidth;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+            }
+
+            // オートボムON時のボム設置カウントダウンバッジ（頭上表示）
+            if (this.isHuman && isAutoBomb && this.respawnTimer <= 0) {
+                const hasBombs = (isInfiniteBomb && this.isHuman) || this.bombs > 0;
+                const badgeY = this.y - this.radius - (TILE_SIZE * 0.28);
+                
+                ctx.save();
+                ctx.font = '900 16px "Noto Sans JP", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                const label = hasBombs ? `💣 ${Math.max(0, this.autoBombTimer).toFixed(1)}` : '💣 弾切れ';
+                const textWidth = ctx.measureText(label).width;
+                const pillW = textWidth + 16;
+                const pillH = 24;
+
+                const isNearDrop = hasBombs && this.autoBombTimer <= 0.8;
+
+                // バッジ背景（黒半透明、角丸ピル型）
+                ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+                ctx.strokeStyle = !hasBombs ? 'rgba(148, 163, 184, 0.5)' : (isNearDrop ? '#facc15' : this.color);
+                ctx.lineWidth = isNearDrop ? 2.5 : 1.5;
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(this.x - pillW / 2, badgeY - pillH / 2, pillW, pillH, 12);
+                } else {
+                    ctx.rect(this.x - pillW / 2, badgeY - pillH / 2, pillW, pillH);
+                }
+                ctx.fill();
+                ctx.stroke();
+
+                // テキスト描画
+                ctx.fillStyle = !hasBombs ? '#94a3b8' : (isNearDrop ? '#fde047' : '#ffffff');
+                ctx.fillText(label, this.x, badgeY);
+                ctx.restore();
+            }
+
+            ctx.globalAlpha = 1.0;
+        }
+        
+        placeBomb() {
+            if (this.respawnTimer > 0) return; 
+
+            // 爆弾残弾数が0以下の場合は置けない（爆弾無限モード時は制限なし）
+            const isInfinite = isInfiniteBomb && this.isHuman;
+            if (!isInfinite && this.bombs <= 0) return;
+
+            const gx = Math.floor(this.x / TILE_SIZE);
+            const gy = Math.floor(this.y / TILE_SIZE);
+            
+            const bombExists = bombs.some(b => b.gridX === gx && b.gridY === gy);
+            
+            if (!bombExists) {
+                // 爆弾を消費（無限モードでない場合のみ減らす）
+                if (!isInfinite) {
+                    this.bombs--;
+                }
+
+                // 爆弾をマスの中心座標に補正して設置
+                const centerX = gx * TILE_SIZE + TILE_SIZE / 2;
+                const centerY = gy * TILE_SIZE + TILE_SIZE / 2;
+                
+                bombs.push(new Bomb(centerX, centerY, this.colorId, this.bombRange));
+                playSound('bomb_drop');
+            }
+        }
+    }
+
+    function initLevel() {
+        grid = [];
+        paintGrid = [];
+        totalFloorTiles = 0;
+        items = [];
+        floatingTexts = [];
+
+        for (let y = 0; y < GRID_HEIGHT; y++) {
+            grid[y] = [];
+            paintGrid[y] = [];
+            for (let x = 0; x < GRID_WIDTH; x++) {
+                paintGrid[y][x] = 0; 
+                
+                if (x === 0 || x === GRID_WIDTH - 1 || y === 0 || y === GRID_HEIGHT - 1) {
+                    grid[y][x] = TILE_WALL;
+                } 
+                else if (x % 2 === 0 && y % 2 === 0) {
+                    grid[y][x] = TILE_WALL;
+                } 
+                else {
+                    const isCorner = 
+                        (x <= 2 && y <= 2) || // 左上 (1P)
+                        (x >= GRID_WIDTH - 3 && y <= 2) || // 右上 (2P)
+                        (x <= 2 && y >= GRID_HEIGHT - 3) || // 左下 (3P)
+                        (x >= GRID_WIDTH - 3 && y >= GRID_HEIGHT - 3); // 右下 (4P)
+
+                    if (isCorner) {
+                        grid[y][x] = TILE_EMPTY;
+                        totalFloorTiles++;
+                    } else {
+                        if (Math.random() < 0.75) {
+                            grid[y][x] = TILE_BLOCK;
+                        } else {
+                            grid[y][x] = TILE_EMPTY;
+                            totalFloorTiles++; 
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 初期アイテム配置（爆弾無限モード時は出現させない）
+        if (!isInfiniteBomb) {
+            for (let i = 0; i < 6; i++) spawnItem();
+        }
+    }
+
+    function spawnItem() {
+        if (isInfiniteBomb) return;
+        let emptySpots = [];
+        for (let y = 1; y < GRID_HEIGHT - 1; y++) {
+            for (let x = 1; x < GRID_WIDTH - 1; x++) {
+                if (grid[y][x] === TILE_EMPTY && !items.some(i => i.gridX === x && i.gridY === y)) {
+                    // 全キャラクターのすぐ近くには湧かないように
+                    const tooClose = allCharacters.some(c => 
+                        Math.abs(x - Math.floor(c.x / TILE_SIZE)) < 2 && Math.abs(y - Math.floor(c.y / TILE_SIZE)) < 2
+                    );
+                    if (tooClose) continue;
+                    emptySpots.push({x, y});
+                }
+            }
+        }
+        if (emptySpots.length > 0) {
+            const spot = emptySpots[Math.floor(Math.random() * emptySpots.length)];
+            items.push(new ItemBombUp(spot.x, spot.y));
+        }
+    }
+
+    function updateUI() {
+        let scores = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        let currentFloors = 0;
+        for (let y = 0; y < GRID_HEIGHT; y++) {
+            for (let x = 0; x < GRID_WIDTH; x++) {
+                if (grid[y][x] === TILE_EMPTY || grid[y][x] === TILE_FLOOR) { 
+                    currentFloors++;
+                    const c = paintGrid[y][x];
+                    if (scores[c] !== undefined) scores[c]++;
+                }
+            }
+        }
+        totalFloorTiles = currentFloors;
+        
+        SLOT_CONFIGS.forEach(cfg => {
+            const slot = cfg.slot;
+            const char = charactersBySlot[slot];
+            const mode = slotModes[slot];
+
+            if (slot === 1) {
+                if (char) {
+                    scoreP1 = Math.round(((scores[1] || 0) / totalFloorTiles) * 100) || 0;
+                    char.scorePercent = scoreP1;
+                    document.getElementById('score-p1').innerText = scoreP1 + '%';
+                    
+                    const hpElem = document.getElementById('hp-p1');
+                    if (hpElem) {
+                        const percent = Math.max(0, (char.hp / char.maxHp) * 100);
+                        hpElem.style.width = percent + '%';
+                    }
+                    
+                    const bombsElem = document.getElementById('bombs-p1');
+                    if (bombsElem) {
+                        if (isInfiniteBomb) {
+                            bombsElem.innerHTML = '<span class="text-yellow-400 font-black text-3xl tracking-wider drop-shadow-md">💣 ∞</span>';
+                        } else if (char.bombs > 0) {
+                            bombsElem.innerHTML = '💣'.repeat(char.bombs);
+                        } else {
+                            bombsElem.innerHTML = '<span class="text-slate-500 text-2xl font-bold tracking-normal">なし (0)</span>';
+                        }
+                    }
+
+                    const guideElem = document.getElementById('guide-p1');
+                    if (guideElem) {
+                        if (isAutoBomb) {
+                            const hasBombs = isInfiniteBomb || char.bombs > 0;
+                            const countDisplay = hasBombs 
+                                ? `<span class="text-white font-black text-sm">${Math.max(0, char.autoBombTimer).toFixed(1)}秒</span>`
+                                : `<span class="text-rose-400 font-bold text-xs">弾切れ</span>`;
+                            guideElem.innerHTML = `<div><span class="text-emerald-400 font-black">Q 短押し:</span> 右折</div><div class="text-amber-400 font-bold">💣 ボムまで: ${countDisplay}</div>`;
+                        } else {
+                            guideElem.innerHTML = `<div><span class="text-emerald-400 font-black">Q 短押し:</span> 右折</div><div><span class="text-emerald-400 font-black">Q 長押し:</span> ボム設置</div>`;
+                        }
+                    }
+                }
+            } else {
+                const panel = document.getElementById(`panel-p${slot}`);
+                if (mode === 'off' || !char) {
+                    if (panel) panel.classList.add('hidden');
+                    return;
+                }
+                if (panel) panel.classList.remove('hidden');
+
+                const score = Math.round(((scores[cfg.colorId] || 0) / totalFloorTiles) * 100) || 0;
+                char.scorePercent = score;
+
+                const scoreElem = document.getElementById(`score-p${slot}`);
+                if (scoreElem) scoreElem.innerText = score + '%';
+
+                const hpElem = document.getElementById(`hp-p${slot}`);
+                if (hpElem) {
+                    const percent = Math.max(0, (char.hp / char.maxHp) * 100);
+                    hpElem.style.width = percent + '%';
+                }
+
+                const bombsElem = document.getElementById(`bombs-p${slot}`);
+                if (bombsElem) {
+                    if (isInfiniteBomb && char.isHuman) {
+                        bombsElem.innerHTML = '<span class="text-yellow-400 font-black text-xl tracking-wider">💣 ∞</span>';
+                    } else if (char.bombs > 0) {
+                        bombsElem.innerHTML = '💣'.repeat(char.bombs);
+                    } else {
+                        bombsElem.innerHTML = '<span class="text-slate-500 text-xs font-bold">なし (0)</span>';
+                    }
+                }
+
+                const badgeElem = document.getElementById(`badge-p${slot}`);
+                if (badgeElem) {
+                    badgeElem.innerText = char.isHuman ? cfg.keyDisplay : 'CPU';
+                }
+
+                const guideElem = document.getElementById(`guide-p${slot}`);
+                if (guideElem) {
+                    if (char.isHuman) {
+                        const pColor = PLAYER_COLORS[cfg.colorId];
+                        const k = cfg.keyDisplay.charAt(0);
+                        if (isAutoBomb) {
+                            const hasBombs = isInfiniteBomb || char.bombs > 0;
+                            const countDisplay = hasBombs 
+                                ? `<span class="text-white font-black text-sm">${Math.max(0, char.autoBombTimer).toFixed(1)}秒</span>`
+                                : `<span class="text-rose-400 font-bold text-xs">弾切れ</span>`;
+                            guideElem.innerHTML = `<div><span class="${pColor.textClass} font-black">${k} 短押し:</span> 右折</div><div class="text-amber-400 font-bold">💣 ボムまで: ${countDisplay}</div>`;
+                        } else {
+                            guideElem.innerHTML = `<div><span class="${pColor.textClass} font-black">${k} 短押し:</span> 右折</div><div><span class="${pColor.textClass} font-black">${k} 長押し:</span> ボム設置</div>`;
+                        }
+                    } else {
+                        guideElem.innerHTML = `<div class="w-full text-center text-slate-400 font-bold">🤖 CPU 自動操作中</div>`;
+                    }
+                }
+            }
+        });
+    }
+
+    function drawMap() {
+        ctx.fillStyle = COLOR_BG;
+        ctx.fillRect(0, 0, GRID_WIDTH * TILE_SIZE, GRID_HEIGHT * TILE_SIZE);
+        
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = Math.max(4, TILE_SIZE * 0.1);
+        const borderOff = ctx.lineWidth / 2;
+        ctx.strokeRect(-borderOff, -borderOff, GRID_WIDTH * TILE_SIZE + borderOff*2, GRID_HEIGHT * TILE_SIZE + borderOff*2);
+
+        for (let y = 0; y < GRID_HEIGHT; y++) {
+            for (let x = 0; x < GRID_WIDTH; x++) {
+                const tile = grid[y][x];
+                const px = x * TILE_SIZE;
+                const py = y * TILE_SIZE;
+
+                if (tile !== TILE_WALL) {
+                    ctx.fillStyle = '#cbd5e1'; 
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+                    const pColorId = paintGrid[y][x];
+                    if (pColorId > 0 && PLAYER_COLORS[pColorId]) {
+                        ctx.fillStyle = PLAYER_COLORS[pColorId].fill;
+                        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    }
+                    
+                    if (tile === TILE_BLOCK) {
+                        const gap = TILE_SIZE * 0.05;
+                        ctx.fillStyle = '#b45309'; 
+                        ctx.fillRect(px + gap, py + gap, TILE_SIZE - gap*2, TILE_SIZE - gap*2);
+                        
+                        ctx.strokeStyle = '#78350f'; 
+                        ctx.lineWidth = Math.max(1, TILE_SIZE * 0.03);
+                        ctx.beginPath();
+                        for(let i=1; i<=3; i++) {
+                            let lineY = py + (TILE_SIZE * 0.25 * i);
+                            ctx.moveTo(px + (TILE_SIZE * 0.15), lineY); 
+                            ctx.lineTo(px + TILE_SIZE - (TILE_SIZE * 0.15), lineY);
+                        }
+                        ctx.stroke();
+                        
+                        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+                        ctx.fillRect(px + gap, py + gap, TILE_SIZE - gap*2, TILE_SIZE * 0.1);
+                    }
+                } else if (tile === TILE_WALL) {
+                    ctx.fillStyle = '#334155'; 
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    const gap = TILE_SIZE * 0.05;
+                    ctx.fillStyle = '#475569'; 
+                    ctx.fillRect(px + gap, py + gap, TILE_SIZE - gap*2, TILE_SIZE - gap*2);
+                }
+            }
+        }
+    }
+
+    function gameLoop(timestamp) {
+        if (!isGameRunning) return;
+
+        // 全画面解除による一時停止中、または設定画面表示中はゲーム内時間を止め、更新処理をスキップ
+        if (isGamePaused || isSettingsOpen) {
+            lastTime = timestamp; // 再開時にdtが跳ね上がるのを防ぐ
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+
+        if (!lastTime) lastTime = timestamp;
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.1); 
+        lastTime = timestamp;
+
+        // 1. 開始3秒前カウントダウン処理
+        if (isStartCountdownActive) {
+            startCountdownTimer -= dt;
+            const curSec = Math.ceil(startCountdownTimer);
+            if (startCountdownTimer > 0) {
+                if (curSec !== lastStartSecond && curSec >= 1) {
+                    lastStartSecond = curSec;
+                    showCountdownDisplay(curSec.toString(), 'text-yellow-300 drop-shadow-[0_0_50px_rgba(253,224,71,0.9)]');
+                    playSound('tick');
+                }
+            } else {
+                // カウントダウン完了！ ゲーム本番開始
+                isStartCountdownActive = false;
+                showCountdownDisplay('START!', 'text-emerald-300 drop-shadow-[0_0_50px_rgba(110,231,183,1)]');
+                playSound('start');
+                startBGM('battle'); // カウントダウン完了と同時にバトルBGM開始
+                setTimeout(() => {
+                    if (isGameRunning && gameTime > 3.0) {
+                        hideCountdownDisplay();
+                    }
+                }, 700);
+            }
+
+            // カウントダウン中も描画（スタンバイ位置）は行うが、物理更新やキー操作は待機
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.translate(offsetX, offsetY);
+
+            drawMap();
+            items.forEach(i => i.draw());
+            allCharacters.forEach(c => c.draw());
+
+            document.getElementById('timer').innerText = Math.ceil(gameTime);
+            updateUI();
+
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+
+        // 2. タイムアップ演出待機中（0.8秒間）
+        if (isTimeUpPending) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.translate(offsetX, offsetY);
+
+            drawMap();
+            items.forEach(i => i.draw());
+            bombs.forEach(b => b.draw());
+            explosions.forEach(e => e.draw());
+            allCharacters.forEach(c => c.draw());
+            updateUI();
+
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+
+        // 3. 通常ゲーム進行
+        // 各スロットの長押し判定 (1P:Q, 2P:R, 3P:U, 4P:P - 0.5秒長押しでボム設置)
+        for (let s = 1; s <= 4; s++) {
+            const ks = keyStates[s];
+            if (ks.isDown && !ks.holdTriggered) {
+                if (Date.now() - ks.downTime >= HOLD_THRESHOLD) { 
+                    ks.holdTriggered = true;
+                    // オートボムがオンの時は長押しでボムを置けないようにする
+                    if (!isAutoBomb) {
+                        const char = charactersBySlot[s];
+                        if (char && char.isHuman && char.respawnTimer <= 0) {
+                            char.handleInput('hold');
+                        }
+                    }
+                }
+            }
+        }
+
+        gameTime -= dt;
+
+        // 終了10秒前 画面赤点滅の更新
+        updateDangerFlash(gameTime);
+
+        // 終了3秒前カウントダウン (3, 2, 1)
+        if (gameTime <= 3.0 && gameTime > 0) {
+            const curEndSec = Math.ceil(gameTime);
+            if (curEndSec !== lastEndSecond && curEndSec >= 1) {
+                lastEndSecond = curEndSec;
+                showCountdownDisplay(curEndSec.toString(), 'text-rose-400 drop-shadow-[0_0_50px_rgba(251,113,133,1)]');
+                playSound('warn_tick');
+            }
+        }
+
+        if (gameTime <= 0) {
+            gameTime = 0;
+            document.getElementById('timer').innerText = '0';
+            isTimeUpPending = true;
+            showCountdownDisplay('TIME UP!', 'text-rose-400 drop-shadow-[0_0_60px_rgba(251,113,133,1)]');
+            playSound('finish');
+            setTimeout(() => {
+                endGame();
+            }, 800);
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+
+        // アイテム自動生成（4秒ごとに生成、フィールド上に最大10個まで維持。爆弾無限モード時は生成しない）
+        itemSpawnTimer += dt;
+        if (itemSpawnTimer > 4) {
+            if (!isInfiniteBomb && items.length < 10) {
+                spawnItem();
+            }
+            itemSpawnTimer = 0;
+        }
+
+        allCharacters.forEach(c => c.update(dt));
+        
+        items.forEach(i => i.update(dt));
+
+        for (let i = bombs.length - 1; i >= 0; i--) {
+            if (bombs[i].update(dt)) bombs.splice(i, 1);
+        }
+        for (let i = explosions.length - 1; i >= 0; i--) {
+            if (explosions[i].update(dt)) explosions.splice(i, 1);
+        }
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+            if (floatingTexts[i].update(dt)) floatingTexts.splice(i, 1);
+        }
+
+        // CLEAR
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // TRANSLATE TO CENTER (1920x1080内の固定位置)
+        ctx.translate(offsetX, offsetY);
+
+        drawMap();
+        items.forEach(i => i.draw());
+        bombs.forEach(b => b.draw());
+        explosions.forEach(e => e.draw());
+        
+        allCharacters.forEach(c => c.draw());
+        floatingTexts.forEach(ft => ft.draw());
+
+        document.getElementById('timer').innerText = Math.ceil(gameTime);
+        updateUI();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function startGame() {
+        initAudio(); // 音声コンテキストの初期化＆アンロック
+        stopBGM(); // カウントダウン中はBGMを停止（無音化）
+
+        isGamePaused = false;
+        isTimeUpPending = false;
+        isStartCountdownActive = true;
+        startCountdownTimer = 3.0;
+        lastStartSecond = 3;
+        lastEndSecond = -1;
+        isDangerAlertTriggered = false;
+
+        const pauseOverlay = document.getElementById('pause-overlay');
+        if (pauseOverlay) pauseOverlay.classList.add('hidden');
+
+        resizeCanvas(); 
+        initLevel();
+        
+        createCharacters();
+        
+        bombs = [];
+        explosions = [];
+        items = [];
+        floatingTexts = [];
+        
+        // 全キー状態をリセット
+        for (let s = 1; s <= 4; s++) {
+            keyStates[s] = { isDown: false, downTime: 0, holdTriggered: false };
+        }
+
+        // 初期アイテムを再度スポーン（爆弾無限モード時は出現させない）
+        if (!isInfiniteBomb) {
+            for (let i = 0; i < 6; i++) spawnItem();
+        }
+        
+        gameTime = 60; // ゲーム時間は60秒固定
+        itemSpawnTimer = 0;
+        isGameRunning = true;
+        lastTime = 0;
+
+        // 終了10秒前赤点滅のリセット
+        updateDangerFlash(60);
+
+        // 開始3秒前カウントダウン演出の開始 (3を表示)
+        showCountdownDisplay('3', 'text-yellow-300 drop-shadow-[0_0_50px_rgba(253,224,71,0.9)]');
+        playSound('tick');
+        
+        // 右側2P〜4Pパネルの表示/非表示を更新
+        [2, 3, 4].forEach(slot => {
+            const panel = document.getElementById(`panel-p${slot}`);
+            if (panel) {
+                if (slotModes[slot] !== 'off') {
+                    panel.classList.remove('hidden');
+                } else {
+                    panel.classList.add('hidden');
+                }
+            }
+        });
+
+        document.getElementById('overlay').classList.add('hidden');
+        document.getElementById('btn-back-title').classList.remove('hidden');
+        const btnInGameSettings = document.getElementById('btn-in-game-settings');
+        if (btnInGameSettings) btnInGameSettings.classList.remove('hidden');
+        closeSettingsModal();
+        
+        const titleScreen = document.getElementById('title-screen');
+        titleScreen.style.opacity = '0';
+        setTimeout(() => {
+            titleScreen.classList.add('hidden');
+        }, 500);
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function endGame() {
+        isGameRunning = false;
+        isGamePaused = false;
+        isStartCountdownActive = false;
+        isTimeUpPending = false;
+        closeSettingsModal();
+        const btnInGameSettings = document.getElementById('btn-in-game-settings');
+        if (btnInGameSettings) btnInGameSettings.classList.add('hidden');
+        const btnBackTitle = document.getElementById('btn-back-title');
+        if (btnBackTitle) btnBackTitle.classList.add('hidden');
+        hideCountdownDisplay();
+        updateDangerFlash(60); // 赤点滅をリセット
+        stopBGM(); // バトルBGM停止
+        playSound('fanfare'); // 勝利ファンファーレ
+
+        // ファンファーレ（約1.0秒）演奏後にリザルトBGMを開始！
+        setTimeout(() => {
+            const overlay = document.getElementById('overlay');
+            if (overlay && !overlay.classList.contains('hidden') && !isGameRunning) {
+                startBGM('result');
+            }
+        }, 1100);
+
+        const pauseOverlay = document.getElementById('pause-overlay');
+        if (pauseOverlay) pauseOverlay.classList.add('hidden');
+        updateUI();
+        
+        const overlay = document.getElementById('overlay');
+        const resultText = document.getElementById('result-text');
+        const resultSubText = document.getElementById('result-subtext');
+        const resultRanking = document.getElementById('result-ranking');
+        
+        overlay.classList.remove('hidden');
+        
+        // 参加キャラクターをスコア降順でソート
+        const ranking = [...allCharacters].sort((a, b) => (b.scorePercent || 0) - (a.scorePercent || 0));
+        const topScore = ranking.length > 0 ? ranking[0].scorePercent : 0;
+        const winners = ranking.filter(c => c.scorePercent === topScore);
+
+        if (winners.length === 1) {
+            const w = winners[0];
+            const pInfo = PLAYER_COLORS[w.colorId];
+            resultText.innerText = `${w.name} の勝利！`;
+            resultText.className = `text-8xl font-black mb-3 ${pInfo.textClass} drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] tracking-tighter text-center`;
+            resultSubText.innerText = `見事トップでフィニッシュ！ (${w.scorePercent}%)`;
+        } else {
+            resultText.innerText = "引き分け！";
+            resultText.className = "text-8xl font-black mb-3 text-yellow-400 drop-shadow-[0_10px_20px_rgba(234,179,8,0.6)] tracking-tighter text-center";
+            const winnerNames = winners.map(w => w.name).join(' & ');
+            resultSubText.innerText = `${winnerNames} が同率トップ！ (${topScore}%)`;
+        }
+
+        // ランキング一覧のHTML構築 (同率スコアは同じ順位：1位、1位、2位、3位形式)
+        let rankingHtml = '<div class="text-xl font-black text-slate-300 mb-2 border-b border-slate-700 pb-2 flex justify-between px-3"><span>順位・プレイヤー</span><span>塗りスコア</span></div>';
+        const medals = ['🥇', '🥈', '🥉'];
+        let currentRank = 1;
+        let lastScore = null;
+        ranking.forEach((char, idx) => {
+            const pInfo = PLAYER_COLORS[char.colorId] || { fill: '#fff', textClass: 'text-white' };
+            const currentScore = char.scorePercent || 0;
+            if (idx > 0 && currentScore < lastScore) {
+                currentRank++;
+            }
+            lastScore = currentScore;
+
+            const medal = medals[currentRank - 1] || '';
+            const isHuman = char.isHuman;
+            const borderHighlight = isHuman ? 'border-2 border-emerald-400/80 shadow-md bg-slate-900/90' : 'bg-slate-800/60 border border-slate-700/60';
+            const rankColorClass = currentRank === 1 ? 'text-yellow-400' : 'text-slate-300';
+            rankingHtml += `
+                <div class="flex items-center justify-between p-3.5 rounded-2xl ${borderHighlight} transition-all">
+                    <div class="flex items-center gap-4">
+                        <span class="text-2xl font-black ${rankColorClass} flex items-center w-24">
+                            <span class="w-8 inline-block text-center shrink-0">${medal}</span>
+                            <span>${currentRank}位</span>
+                        </span>
+                        <span class="w-4 h-4 rounded-full" style="background-color: ${pInfo.fill}; box-shadow: 0 0 10px ${pInfo.fill}"></span>
+                        <span class="text-2xl font-black text-white">${char.name} ${isHuman ? `<span class="text-xs bg-slate-700 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-400/40 ml-1 font-bold">${pInfo.keyName}キー</span>` : ''}</span>
+                    </div>
+                    <span class="text-3xl font-black ${pInfo.textClass}">${currentScore}%</span>
+                </div>
+            `;
+        });
+        if (resultRanking) resultRanking.innerHTML = rankingHtml;
+    }
+
+    document.getElementById('btn-restart').addEventListener('click', startGame);
+    document.getElementById('btn-start-game').addEventListener('click', startGame);
+    const btnResultToTitle = document.getElementById('btn-result-to-title');
+    if (btnResultToTitle) {
+        btnResultToTitle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            goToTitle();
+        });
+    }
+
+    // タイトルへ戻る処理
+    function goToTitle() {
+        isGameRunning = false;
+        isGamePaused = false;
+        isStartCountdownActive = false;
+        isTimeUpPending = false;
+        hideCountdownDisplay();
+        updateDangerFlash(60); // 赤点滅をリセット
+        startBGM('title'); // タイトルBGM再開
+
+        const pauseOverlay = document.getElementById('pause-overlay');
+        if (pauseOverlay) pauseOverlay.classList.add('hidden');
+
+        closeSettingsModal();
+        const btnInGameSettings = document.getElementById('btn-in-game-settings');
+        if (btnInGameSettings) btnInGameSettings.classList.add('hidden');
+
+        document.getElementById('btn-back-title').classList.add('hidden');
+        document.getElementById('overlay').classList.add('hidden');
+        
+        const titleScreen = document.getElementById('title-screen');
+        titleScreen.classList.remove('hidden');
+        
+        setTimeout(() => {
+            titleScreen.style.opacity = '1';
+        }, 10);
+        
+        resizeCanvas();
+        initLevel();
+        drawTitleBackground();
+    }
+
+    document.getElementById('btn-back-title').addEventListener('click', goToTitle);
+
+    // ----------------------------------------------------
+    // ゲーム設定（オートボム / 進行ガイド / 爆弾無限）同期＆切り替え処理
+    // ----------------------------------------------------
+
+    // オートボムの表示同期
+    function syncAutoBombUI() {
+        const btnTitle = document.getElementById('btn-auto-bomb');
+        const textTitle = document.getElementById('text-auto-bomb');
+        const sliderContainerTitle = document.getElementById('container-autobomb-slider');
+        
+        const btnModal = document.getElementById('btn-settings-auto-bomb');
+        const sliderContainerModal = document.getElementById('container-settings-autobomb-slider');
+
+        if (isAutoBomb) {
+            if (textTitle) textTitle.innerText = 'オートボム: オン';
+            if (btnTitle) {
+                btnTitle.classList.replace('text-slate-300', 'text-yellow-400');
+                btnTitle.classList.replace('border-slate-600', 'border-yellow-500');
+                btnTitle.classList.replace('hover:bg-slate-700', 'hover:bg-slate-800');
+                btnTitle.classList.add('shadow-[0_0_20px_rgba(234,179,8,0.4)]');
+            }
+            if (sliderContainerTitle) {
+                sliderContainerTitle.classList.remove('hidden');
+                setTimeout(() => sliderContainerTitle.classList.remove('opacity-0'), 10);
+            }
+
+            if (btnModal) {
+                btnModal.innerText = 'オン';
+                btnModal.classList.replace('text-slate-300', 'text-yellow-400');
+                btnModal.classList.replace('border-slate-600', 'border-yellow-500');
+                btnModal.classList.add('shadow-[0_0_15px_rgba(234,179,8,0.3)]');
+            }
+            if (sliderContainerModal) {
+                sliderContainerModal.classList.remove('hidden');
+                setTimeout(() => sliderContainerModal.classList.remove('opacity-0'), 10);
+            }
+        } else {
+            if (textTitle) textTitle.innerText = 'オートボム: オフ';
+            if (btnTitle) {
+                btnTitle.classList.replace('text-yellow-400', 'text-slate-300');
+                btnTitle.classList.replace('border-yellow-500', 'border-slate-600');
+                btnTitle.classList.replace('hover:bg-slate-800', 'hover:bg-slate-700');
+                btnTitle.classList.remove('shadow-[0_0_20px_rgba(234,179,8,0.4)]');
+            }
+            if (sliderContainerTitle) {
+                sliderContainerTitle.classList.add('opacity-0');
+                setTimeout(() => sliderContainerTitle.classList.add('hidden'), 300);
+            }
+
+            if (btnModal) {
+                btnModal.innerText = 'オフ';
+                btnModal.classList.replace('text-yellow-400', 'text-slate-300');
+                btnModal.classList.replace('border-yellow-500', 'border-slate-600');
+                btnModal.classList.remove('shadow-[0_0_15px_rgba(234,179,8,0.3)]');
+            }
+            if (sliderContainerModal) {
+                sliderContainerModal.classList.add('opacity-0');
+                setTimeout(() => sliderContainerModal.classList.add('hidden'), 300);
+            }
+        }
+    }
+
+    // オートボム間隔スライダーの表示同期
+    function syncAutoBombIntervalUI() {
+        const sliderTitle = document.getElementById('slider-autobomb-interval');
+        const displayTitle = document.getElementById('interval-display');
+        const sliderModal = document.getElementById('slider-settings-autobomb-interval');
+        const displayModal = document.getElementById('settings-interval-display');
+
+        const secText = `${autoBombInterval.toFixed(1)}秒`;
+        if (sliderTitle) sliderTitle.value = autoBombInterval;
+        if (displayTitle) displayTitle.innerText = secText;
+        if (sliderModal) sliderModal.value = autoBombInterval;
+        if (displayModal) displayModal.innerText = secText;
+    }
+
+    // 進行ガイドの表示同期
+    function syncGuideArrowUI() {
+        const btnTitle = document.getElementById('btn-guide-arrow');
+        const textTitle = document.getElementById('text-guide-arrow');
+        const btnModal = document.getElementById('btn-settings-guide-arrow');
+
+        if (isGuideArrow) {
+            if (textTitle) textTitle.innerText = '進行ガイド: オン';
+            if (btnTitle) {
+                btnTitle.classList.replace('text-slate-300', 'text-yellow-400');
+                btnTitle.classList.replace('border-slate-600', 'border-yellow-500');
+                btnTitle.classList.replace('hover:bg-slate-700', 'hover:bg-slate-800');
+                btnTitle.classList.add('shadow-[0_0_20px_rgba(234,179,8,0.4)]');
+            }
+            if (btnModal) {
+                btnModal.innerText = 'オン';
+                btnModal.classList.replace('text-slate-300', 'text-yellow-400');
+                btnModal.classList.replace('border-slate-600', 'border-yellow-500');
+                btnModal.classList.add('shadow-[0_0_15px_rgba(234,179,8,0.3)]');
+            }
+        } else {
+            if (textTitle) textTitle.innerText = '進行ガイド: オフ';
+            if (btnTitle) {
+                btnTitle.classList.replace('text-yellow-400', 'text-slate-300');
+                btnTitle.classList.replace('border-yellow-500', 'border-slate-600');
+                btnTitle.classList.replace('hover:bg-slate-800', 'hover:bg-slate-700');
+                btnTitle.classList.remove('shadow-[0_0_20px_rgba(234,179,8,0.4)]');
+            }
+            if (btnModal) {
+                btnModal.innerText = 'オフ';
+                btnModal.classList.replace('text-yellow-400', 'text-slate-300');
+                btnModal.classList.replace('border-yellow-500', 'border-slate-600');
+                btnModal.classList.remove('shadow-[0_0_15px_rgba(234,179,8,0.3)]');
+            }
+        }
+    }
+
+    // 爆弾無限モードの表示同期
+    function syncInfiniteBombUI() {
+        const btnTitle = document.getElementById('btn-infinite-bomb');
+        const textTitle = document.getElementById('text-infinite-bomb');
+        const btnModal = document.getElementById('btn-settings-infinite-bomb');
+
+        if (isInfiniteBomb) {
+            if (textTitle) textTitle.innerText = '爆弾無限: オン';
+            if (btnTitle) {
+                btnTitle.classList.replace('text-slate-300', 'text-yellow-400');
+                btnTitle.classList.replace('border-slate-600', 'border-yellow-500');
+                btnTitle.classList.replace('hover:bg-slate-700', 'hover:bg-slate-800');
+                btnTitle.classList.add('shadow-[0_0_20px_rgba(234,179,8,0.4)]');
+            }
+            if (btnModal) {
+                btnModal.innerText = 'オン';
+                btnModal.classList.replace('text-slate-300', 'text-yellow-400');
+                btnModal.classList.replace('border-slate-600', 'border-yellow-500');
+                btnModal.classList.add('shadow-[0_0_15px_rgba(234,179,8,0.3)]');
+            }
+        } else {
+            if (textTitle) textTitle.innerText = '爆弾無限: オフ';
+            if (btnTitle) {
+                btnTitle.classList.replace('text-yellow-400', 'text-slate-300');
+                btnTitle.classList.replace('border-yellow-500', 'border-slate-600');
+                btnTitle.classList.replace('hover:bg-slate-800', 'hover:bg-slate-700');
+                btnTitle.classList.remove('shadow-[0_0_20px_rgba(234,179,8,0.4)]');
+            }
+            if (btnModal) {
+                btnModal.innerText = 'オフ';
+                btnModal.classList.replace('text-yellow-400', 'text-slate-300');
+                btnModal.classList.replace('border-yellow-500', 'border-slate-600');
+                btnModal.classList.remove('shadow-[0_0_15px_rgba(234,179,8,0.3)]');
+            }
+        }
+    }
+
+    // プレイヤー移動速度UIの同期
+    function syncSpeedUI() {
+        const sliderSpeed = document.getElementById('slider-speed');
+        const sliderSettingsSpeed = document.getElementById('slider-settings-speed');
+        const textSpeedVal = document.getElementById('text-speed-val');
+        const textSettingsSpeedVal = document.getElementById('text-settings-speed-val');
+
+        const val = Math.round(playerSpeedMultiplier * 100);
+        if (sliderSpeed) sliderSpeed.value = val;
+        if (sliderSettingsSpeed) sliderSettingsSpeed.value = val;
+        if (textSpeedVal) textSpeedVal.innerText = `${val}%`;
+        if (textSettingsSpeedVal) textSettingsSpeedVal.innerText = `${val}%`;
+    }
+
+    // 全設定UIを一括同期
+    function syncAllSettingsUI() {
+        syncAutoBombUI();
+        syncAutoBombIntervalUI();
+        syncGuideArrowUI();
+        syncInfiniteBombUI();
+        syncSpeedUI();
+    }
+
+    // トグル・変更アクション
+    function toggleAutoBomb() {
+        playSound('ui_click');
+        isAutoBomb = !isAutoBomb;
+        if (isAutoBomb) {
+            allCharacters.forEach(c => c.autoBombTimer = autoBombInterval);
+        }
+        syncAutoBombUI();
+    }
+
+    function updateAutoBombInterval(val) {
+        autoBombInterval = val;
+        allCharacters.forEach(c => c.autoBombTimer = Math.min(c.autoBombTimer, autoBombInterval));
+        syncAutoBombIntervalUI();
+    }
+
+    function toggleGuideArrow() {
+        playSound('ui_click');
+        isGuideArrow = !isGuideArrow;
+        syncGuideArrowUI();
+    }
+
+    function toggleInfiniteBomb() {
+        playSound('ui_click');
+        isInfiniteBomb = !isInfiniteBomb;
+        if (isInfiniteBomb) {
+            items = []; // 無限モード時はアイテム消去
+        } else if (!isGameRunning && items.length === 0) {
+            for (let i = 0; i < 6; i++) spawnItem();
+        }
+        if (!isGameRunning) {
+            drawTitleBackground();
+        }
+        syncInfiniteBombUI();
+    }
+
+    // タイトル側＆設定モーダル側のイベントリスナー登録
+    const btnAutoBomb = document.getElementById('btn-auto-bomb');
+    if (btnAutoBomb) btnAutoBomb.addEventListener('click', toggleAutoBomb);
+
+    const btnSettingsAutoBomb = document.getElementById('btn-settings-auto-bomb');
+    if (btnSettingsAutoBomb) btnSettingsAutoBomb.addEventListener('click', toggleAutoBomb);
+
+    const sliderInterval = document.getElementById('slider-autobomb-interval');
+    if (sliderInterval) {
+        sliderInterval.addEventListener('input', (e) => {
+            updateAutoBombInterval(parseFloat(e.target.value));
+        });
+    }
+
+    const sliderSettingsInterval = document.getElementById('slider-settings-autobomb-interval');
+    if (sliderSettingsInterval) {
+        sliderSettingsInterval.addEventListener('input', (e) => {
+            updateAutoBombInterval(parseFloat(e.target.value));
+        });
+    }
+
+    const btnGuideArrow = document.getElementById('btn-guide-arrow');
+    if (btnGuideArrow) btnGuideArrow.addEventListener('click', toggleGuideArrow);
+
+    const btnSettingsGuideArrow = document.getElementById('btn-settings-guide-arrow');
+    if (btnSettingsGuideArrow) btnSettingsGuideArrow.addEventListener('click', toggleGuideArrow);
+
+    const btnInfiniteBomb = document.getElementById('btn-infinite-bomb');
+    if (btnInfiniteBomb) btnInfiniteBomb.addEventListener('click', toggleInfiniteBomb);
+
+    const btnSettingsInfiniteBomb = document.getElementById('btn-settings-infinite-bomb');
+    if (btnSettingsInfiniteBomb) btnSettingsInfiniteBomb.addEventListener('click', toggleInfiniteBomb);
+
+    // タイトル画面用の背景描画（メンバー全員をマップ四隅に表示）
+    function drawTitleBackground() {
+        createCharacters();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.translate(offsetX, offsetY);
+        
+        drawMap();
+        items.forEach(i => i.draw());
+
+        // 各スロットを描画（参戦中は通常、お休み中は半透明＋頭上に💤）
+        SLOT_CONFIGS.forEach(cfg => {
+            const mode = slotModes[cfg.slot];
+            const isHuman = (mode === 'human');
+            const displayName = isHuman ? `${cfg.slot}P` : `CPU ${cfg.slot}`;
+            const char = new Character(cfg.spawnX, cfg.spawnY, cfg.colorId, isHuman, displayName, cfg.startDirIndex);
+            char.slot = cfg.slot;
+
+            if (mode !== 'off') {
+                char.draw();
+            } else {
+                ctx.save();
+                ctx.globalAlpha = 0.35;
+                char.draw();
+                ctx.restore();
+                // 頭上に「💤」を表示
+                ctx.font = `${TILE_SIZE * 0.35}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('💤', char.x, char.y - char.radius);
+            }
+        });
+    }
+
+    // スロットトグルボタン（2P〜4P）と人数バッジの更新処理
+    function updateSlotToggleUI() {
+        const badge = document.getElementById('player-count-badge');
+        let humanCount = 1; // 1Pは常に人間プレイヤー
+        let cpuCount = 0;
+        
+        [2, 3, 4].forEach(slot => {
+            const mode = slotModes[slot];
+            const cfg = SLOT_CONFIGS.find(c => c.slot === slot);
+            const pColor = PLAYER_COLORS[cfg.colorId];
+            const btn = document.getElementById(`btn-slot-${slot}`);
+            const status = document.getElementById(`status-slot-${slot}`);
+            if (!btn || !status) return;
+
+            if (mode === 'cpu') {
+                cpuCount++;
+                btn.style.borderColor = pColor.fill;
+                btn.style.boxShadow = `0 0 15px ${pColor.fill}66`;
+                btn.classList.remove('opacity-50');
+                status.innerHTML = '<span class="text-xl">🤖</span> <span>CPU (自動)</span>';
+                status.style.backgroundColor = `${pColor.fill}33`;
+                status.style.borderColor = `${pColor.fill}88`;
+                status.style.color = '#fff';
+            } else if (mode === 'human') {
+                humanCount++;
+                btn.style.borderColor = pColor.fill;
+                btn.style.boxShadow = `0 0 20px ${pColor.fill}99`;
+                btn.classList.remove('opacity-50');
+                status.innerHTML = `<span class="text-xl">🎮</span> <span>${cfg.keyDisplay}操作</span>`;
+                status.style.backgroundColor = `${pColor.fill}55`;
+                status.style.borderColor = '#ffffff';
+                status.style.color = '#fff';
+            } else {
+                // off (お休み)
+                btn.style.borderColor = 'rgba(71, 85, 105, 0.6)';
+                btn.style.boxShadow = 'none';
+                btn.classList.add('opacity-50');
+                status.innerHTML = '<span class="text-xl">💤</span> <span>お休み</span>';
+                status.style.backgroundColor = 'rgba(30, 41, 59, 0.8)';
+                status.style.borderColor = 'rgba(71, 85, 105, 0.8)';
+                status.style.color = '#94a3b8';
+            }
+        });
+
+        const totalPlayers = humanCount + cpuCount;
+        if (badge) {
+            if (cpuCount > 0 && humanCount > 1) {
+                badge.innerText = `${totalPlayers}人対戦 (プレイヤー${humanCount}人 + CPU ${cpuCount}体)`;
+            } else if (cpuCount > 0 && humanCount === 1) {
+                badge.innerText = `${totalPlayers}人対戦 (1P + CPU ${cpuCount}体)`;
+            } else if (cpuCount === 0 && humanCount > 1) {
+                badge.innerText = `${totalPlayers}人対戦 (プレイヤー${humanCount}人)`;
+            } else {
+                badge.innerText = `1人練習モード`;
+            }
+        }
+
+        // タイトル画面で背景を再描画して現在の参加キャラを反映
+        if (!isGameRunning) {
+            drawTitleBackground();
+        }
+    }
+
+    // 各スロットボタン（2P〜4P）のクリックイベント登録 (プレイヤー ⇄ CPU ⇄ お休み)
+    [2, 3, 4].forEach(slot => {
+        const btn = document.getElementById(`btn-slot-${slot}`);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                playSound('ui_click');
+                const currentMode = slotModes[slot];
+                if (currentMode === 'human') {
+                    slotModes[slot] = 'cpu';
+                } else if (currentMode === 'cpu') {
+                    slotModes[slot] = 'off';
+                } else {
+                    slotModes[slot] = 'human';
+                }
+                updateSlotToggleUI();
+            });
+        }
+    });
+
+    // BGM & SE 音量更新・同期関数
+    function updateBgmVolume(val) {
+        initAudio();
+        bgmVolume = val / 100;
+        if (bgmGainNode && audioCtx) {
+            bgmGainNode.gain.setValueAtTime(bgmVolume, audioCtx.currentTime);
+        }
+        const sliderBgm = document.getElementById('slider-bgm');
+        const sliderPauseBgm = document.getElementById('slider-pause-bgm');
+        const sliderSettingsBgm = document.getElementById('slider-settings-bgm');
+        const textBgmVal = document.getElementById('text-bgm-val');
+        const textPauseBgmVal = document.getElementById('text-pause-bgm-val');
+        const textSettingsBgmVal = document.getElementById('text-settings-bgm-val');
+
+        if (sliderBgm) sliderBgm.value = val;
+        if (sliderPauseBgm) sliderPauseBgm.value = val;
+        if (sliderSettingsBgm) sliderSettingsBgm.value = val;
+        if (textBgmVal) textBgmVal.innerText = `${val}%`;
+        if (textPauseBgmVal) textPauseBgmVal.innerText = `${val}%`;
+        if (textSettingsBgmVal) textSettingsBgmVal.innerText = `${val}%`;
+
+        // 未再生なら状況に応じたBGMを開始（カウントダウン中や設定画面表示中を除く）
+        if (!isGameRunning && !bgmIsPlaying && !isStartCountdownActive && !isSettingsOpen) {
+            const overlay = document.getElementById('overlay');
+            if (overlay && !overlay.classList.contains('hidden')) {
+                startBGM('result');
+            } else {
+                startBGM('title');
+            }
+        }
+    }
+
+    function updateSeVolume(val) {
+        initAudio();
+        seVolume = val / 100;
+        if (seGainNode && audioCtx) {
+            seGainNode.gain.setValueAtTime(seVolume, audioCtx.currentTime);
+        }
+        const sliderSe = document.getElementById('slider-se');
+        const sliderPauseSe = document.getElementById('slider-pause-se');
+        const sliderSettingsSe = document.getElementById('slider-settings-se');
+        const textSeVal = document.getElementById('text-se-val');
+        const textPauseSeVal = document.getElementById('text-pause-se-val');
+        const textSettingsSeVal = document.getElementById('text-settings-se-val');
+
+        if (sliderSe) sliderSe.value = val;
+        if (sliderPauseSe) sliderPauseSe.value = val;
+        if (sliderSettingsSe) sliderSettingsSe.value = val;
+        if (textSeVal) textSeVal.innerText = `${val}%`;
+        if (textPauseSeVal) textPauseSeVal.innerText = `${val}%`;
+        if (textSettingsSeVal) textSettingsSeVal.innerText = `${val}%`;
+    }
+
+    // 全ての設定を初期値にリセット
+    function resetAllSettingsToDefault() {
+        playSound('ui_click');
+
+        // 1. 音量設定を初期値にリセット (BGM: 50%, SE: 70%)
+        updateBgmVolume(50);
+        updateSeVolume(70);
+
+        // 2. ゲームプレイ設定を初期値にリセット
+        isAutoBomb = false;
+        autoBombInterval = 3.0;
+        isGuideArrow = true;
+        isInfiniteBomb = false;
+        playerSpeedMultiplier = 1.0;
+
+        // 3. 対戦スロット設定を初期値にリセット (デフォルト: 全員プレイヤー操作)
+        slotModes[1] = 'human';
+        slotModes[2] = 'human';
+        slotModes[3] = 'human';
+        slotModes[4] = 'human';
+        updateSlotToggleUI();
+
+        // 4. 全設定UIを一括同期
+        syncAllSettingsUI();
+    }
+
+    // BGM & SE 音量スライダーのイベントリスナー設定（タイトル・ポーズ・設定モーダルの3箇所同期）
+    function setupVolumeControls() {
+        const sliderBgm = document.getElementById('slider-bgm');
+        const sliderPauseBgm = document.getElementById('slider-pause-bgm');
+        const sliderSettingsBgm = document.getElementById('slider-settings-bgm');
+        const sliderSe = document.getElementById('slider-se');
+        const sliderPauseSe = document.getElementById('slider-pause-se');
+        const sliderSettingsSe = document.getElementById('slider-settings-se');
+
+        if (sliderBgm) {
+            sliderBgm.addEventListener('input', (e) => updateBgmVolume(parseInt(e.target.value, 10)));
+        }
+        if (sliderPauseBgm) {
+            sliderPauseBgm.addEventListener('input', (e) => updateBgmVolume(parseInt(e.target.value, 10)));
+        }
+        if (sliderSettingsBgm) {
+            sliderSettingsBgm.addEventListener('input', (e) => updateBgmVolume(parseInt(e.target.value, 10)));
+        }
+
+        if (sliderSe) {
+            sliderSe.addEventListener('input', (e) => updateSeVolume(parseInt(e.target.value, 10)));
+            sliderSe.addEventListener('change', () => playSound('ui_click'));
+        }
+        if (sliderPauseSe) {
+            sliderPauseSe.addEventListener('input', (e) => updateSeVolume(parseInt(e.target.value, 10)));
+            sliderPauseSe.addEventListener('change', () => playSound('ui_click'));
+        }
+        if (sliderSettingsSe) {
+            sliderSettingsSe.addEventListener('input', (e) => updateSeVolume(parseInt(e.target.value, 10)));
+            sliderSettingsSe.addEventListener('change', () => playSound('ui_click'));
+        }
+    }
+
+    // プレイヤー移動速度スライダーの同期＆設定（タイトル画面・設定画面）
+    function setupSpeedControls() {
+        const sliderSpeed = document.getElementById('slider-speed');
+        const sliderSettingsSpeed = document.getElementById('slider-settings-speed');
+
+        function updateSpeed(val) {
+            const num = parseInt(val, 10);
+            playerSpeedMultiplier = num / 100;
+            syncSpeedUI();
+        }
+
+        if (sliderSpeed) {
+            sliderSpeed.addEventListener('input', (e) => updateSpeed(e.target.value));
+        }
+        if (sliderSettingsSpeed) {
+            sliderSettingsSpeed.addEventListener('input', (e) => updateSpeed(e.target.value));
+        }
+
+        // 初期値に戻すボタンのリスナー登録（タイトル画面・設定画面）
+        const btnResetTitle = document.getElementById('btn-reset-settings-title');
+        if (btnResetTitle) {
+            btnResetTitle.addEventListener('click', resetAllSettingsToDefault);
+        }
+        const btnResetModal = document.getElementById('btn-reset-settings-modal');
+        if (btnResetModal) {
+            btnResetModal.addEventListener('click', resetAllSettingsToDefault);
+        }
+    }
+
+    // 初回の画面操作（クリックやキー入力）でAudioContext初期化＆タイトルBGM開始
+    function tryStartTitleBGM() {
+        initAudio();
+        const titleScreen = document.getElementById('title-screen');
+        if (titleScreen && !titleScreen.classList.contains('hidden') && !isGameRunning && !bgmIsPlaying && !isStartCountdownActive && !isSettingsOpen) {
+            startBGM('title');
+        }
+    }
+    window.addEventListener('click', tryStartTitleBGM, { once: true });
+    window.addEventListener('keydown', tryStartTitleBGM, { once: true });
+    window.addEventListener('touchstart', tryStartTitleBGM, { once: true });
+
+    // Initial background rendering for title screen & audio controls setup
+    setTimeout(() => {
+        fitGameViewport();
+        resizeCanvas();
+        initLevel();
+        updateSlotToggleUI();
+        syncAllSettingsUI();
+        drawTitleBackground();
+        setupVolumeControls();
+        setupSpeedControls();
+    }, 100);
+
+</script>
+</body>
+</html>
