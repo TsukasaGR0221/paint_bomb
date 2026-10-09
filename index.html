@@ -102,6 +102,53 @@
             paint-order: stroke fill;
             text-shadow: 0 0 25px rgba(0, 0, 0, 0.95), 0 5px 15px rgba(0, 0, 0, 0.9);
         }
+
+        /* ダメージ被弾時のステータスパネル揺れアニメーション */
+        @keyframes damageShake {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            20% { transform: translate(-5px, 2px) rotate(-1.5deg); }
+            40% { transform: translate(5px, -3px) rotate(1.5deg); }
+            60% { transform: translate(-4px, -1px) rotate(-1deg); }
+            80% { transform: translate(3px, 2px) rotate(0.8deg); }
+        }
+        .animate-damage-shake {
+            animation: damageShake 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+            box-shadow: 0 0 35px rgba(239, 68, 68, 0.8) !important;
+            border-color: #ef4444 !important;
+        }
+
+        /* 被弾時の画面赤フラッシュ（ダメージビネット） */
+        #damage-overlay {
+            background: radial-gradient(circle at center, rgba(239, 68, 68, 0) 30%, rgba(239, 68, 68, 0.45) 75%, rgba(220, 38, 38, 0.85) 100%);
+            box-shadow: inset 0 0 140px rgba(239, 68, 68, 0.9);
+        }
+
+        /* スプラトゥーン風インクメーター ストライプアニメーション */
+        @keyframes inkStripeMove {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 0; }
+        }
+        .animate-ink-stripe {
+            background-size: 40px 40px;
+            animation: inkStripeMove 1.2s linear infinite;
+        }
+
+        /* 勝者スタンプドカン演出 */
+        @keyframes winnerStamp {
+            0% { transform: scale(3.5) rotate(-25deg); opacity: 0; }
+            70% { transform: scale(0.92) rotate(4deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        .animate-winner-stamp {
+            animation: winnerStamp 0.55s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+        }
+
+        /* 紙吹雪落下アニメーション */
+        @keyframes confettiFall {
+            0% { transform: translateY(-30px) rotate(0deg); opacity: 1; }
+            85% { opacity: 1; }
+            100% { transform: translateY(1120px) rotate(720deg); opacity: 0; }
+        }
     </style>
 </head>
 <body class="text-white">
@@ -113,14 +160,14 @@
         <canvas id="gameCanvas" width="1920" height="1080" class="absolute inset-0 block"></canvas>
 
         <!-- 画面下中央 全画面ボタン（コンパクト表示） -->
-        <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-[60] pointer-events-auto flex items-center">
+        <div id="fullscreen-container" class="absolute bottom-3 left-1/2 -translate-x-1/2 z-[60] pointer-events-auto flex items-center transition-all duration-300">
             <button id="btn-fullscreen" class="bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-2 rounded-full border border-slate-700 hover:border-slate-500 text-sm font-bold shadow-md transition-all flex items-center gap-2 hover:scale-105 active:scale-95 backdrop-blur-sm min-w-[120px] justify-center cursor-pointer">
                 <span id="fullscreen-icon" class="text-base leading-none">⛶</span> <span id="fullscreen-text" class="tracking-wider">全画面</span>
             </button>
         </div>
 
         <!-- ゲーム内UIレイヤー -->
-        <div id="in-game-ui" class="absolute inset-0 pointer-events-none z-20">
+        <div id="in-game-ui" class="absolute inset-0 pointer-events-none z-20 transition-opacity duration-700">
 
             <!-- 中央上部 タイマー ＆ 操作ボタン（左: 設定ボタン / 中央: タイマー / 右: タイトルに戻るボタン） -->
             <div class="absolute top-5 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center gap-5 z-30">
@@ -153,15 +200,23 @@
                     </div>
                 </div>
                 <!-- HP Bar -->
-                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
-                    <div id="hp-p1" class="bg-gradient-to-r from-emerald-600 to-emerald-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner relative">
+                    <div id="hp-delay-p1" class="absolute inset-y-0 left-0 bg-rose-500/80 h-full rounded-full transition-all duration-500 ease-out" style="width: 100%;"></div>
+                    <div id="hp-p1" class="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-600 to-emerald-400 h-full rounded-full transition-all duration-150" style="width: 100%;"></div>
                 </div>
-                <!-- Bombs -->
-                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p1">💣💣💣</div>
+                <!-- Bombs & Fire Power -->
+                <div class="text-2xl tracking-widest min-h-[36px] text-left mb-2 flex items-center justify-between" id="bombs-p1">💣💣💣</div>
                 <!-- 操作ミニガイド -->
-                <div id="guide-p1" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
-                    <div><span class="text-emerald-400 font-black">Q 短押し:</span> 右折</div>
-                    <div><span class="text-emerald-400 font-black">Q 長押し:</span> ボム設置</div>
+                <div id="guide-p1" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-1.5">
+                            <span class="px-1.5 py-0.5 rounded bg-slate-950 border border-emerald-400/50 text-emerald-400 font-black text-xs shadow-sm">Q</span>
+                            <span class="text-slate-200">押す:</span>
+                            <span class="text-emerald-400 font-black">前進</span>
+                            <span class="text-slate-400 text-[10px] font-normal">(離して回転)</span>
+                        </div>
+                        <div class="text-amber-300 font-black text-xs">短押し: 💣ボム</div>
+                    </div>
                 </div>
             </div>
 
@@ -178,15 +233,23 @@
                     </div>
                 </div>
                 <!-- HP Bar -->
-                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
-                    <div id="hp-p2" class="bg-gradient-to-r from-red-600 to-red-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner relative">
+                    <div id="hp-delay-p2" class="absolute inset-y-0 left-0 bg-rose-500/80 h-full rounded-full transition-all duration-500 ease-out" style="width: 100%;"></div>
+                    <div id="hp-p2" class="absolute inset-y-0 left-0 bg-gradient-to-r from-red-600 to-red-400 h-full rounded-full transition-all duration-150" style="width: 100%;"></div>
                 </div>
-                <!-- Bombs -->
-                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p2">💣💣💣</div>
+                <!-- Bombs & Fire Power -->
+                <div class="text-2xl tracking-widest min-h-[36px] text-left mb-2 flex items-center justify-between" id="bombs-p2">💣💣💣</div>
                 <!-- 操作ミニガイド -->
-                <div id="guide-p2" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
-                    <div><span class="text-red-400 font-black">R 短押し:</span> 右折</div>
-                    <div><span class="text-red-400 font-black">R 長押し:</span> ボム設置</div>
+                <div id="guide-p2" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-1.5">
+                            <span class="px-1.5 py-0.5 rounded bg-slate-950 border border-red-400/50 text-red-400 font-black text-xs shadow-sm">R</span>
+                            <span class="text-slate-200">押す:</span>
+                            <span class="text-red-400 font-black">前進</span>
+                            <span class="text-slate-400 text-[10px] font-normal">(離して回転)</span>
+                        </div>
+                        <div class="text-amber-300 font-black text-xs">短押し: 💣ボム</div>
+                    </div>
                 </div>
             </div>
 
@@ -203,15 +266,23 @@
                     </div>
                 </div>
                 <!-- HP Bar -->
-                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
-                    <div id="hp-p3" class="bg-gradient-to-r from-blue-600 to-blue-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner relative">
+                    <div id="hp-delay-p3" class="absolute inset-y-0 left-0 bg-rose-500/80 h-full rounded-full transition-all duration-500 ease-out" style="width: 100%;"></div>
+                    <div id="hp-p3" class="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400 h-full rounded-full transition-all duration-150" style="width: 100%;"></div>
                 </div>
-                <!-- Bombs -->
-                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p3">💣💣💣</div>
+                <!-- Bombs & Fire Power -->
+                <div class="text-2xl tracking-widest min-h-[36px] text-left mb-2 flex items-center justify-between" id="bombs-p3">💣💣💣</div>
                 <!-- 操作ミニガイド -->
-                <div id="guide-p3" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
-                    <div><span class="text-blue-400 font-black">U 短押し:</span> 右折</div>
-                    <div><span class="text-blue-400 font-black">U 長押し:</span> ボム設置</div>
+                <div id="guide-p3" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-1.5">
+                            <span class="px-1.5 py-0.5 rounded bg-slate-950 border border-blue-400/50 text-blue-400 font-black text-xs shadow-sm">U</span>
+                            <span class="text-slate-200">押す:</span>
+                            <span class="text-blue-400 font-black">前進</span>
+                            <span class="text-slate-400 text-[10px] font-normal">(離して回転)</span>
+                        </div>
+                        <div class="text-amber-300 font-black text-xs">短押し: 💣ボム</div>
+                    </div>
                 </div>
             </div>
 
@@ -228,19 +299,30 @@
                     </div>
                 </div>
                 <!-- HP Bar -->
-                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner">
-                    <div id="hp-p4" class="bg-gradient-to-r from-amber-600 to-amber-400 h-full w-full transition-all duration-200" style="width: 100%;"></div>
+                <div class="w-full bg-slate-800 h-5 rounded-full border border-slate-600 mb-2 overflow-hidden shadow-inner relative">
+                    <div id="hp-delay-p4" class="absolute inset-y-0 left-0 bg-rose-500/80 h-full rounded-full transition-all duration-500 ease-out" style="width: 100%;"></div>
+                    <div id="hp-p4" class="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-600 to-amber-400 h-full rounded-full transition-all duration-150" style="width: 100%;"></div>
                 </div>
-                <!-- Bombs -->
-                <div class="text-2xl tracking-widest h-8 text-left mb-2 flex items-center" id="bombs-p4">💣💣💣</div>
+                <!-- Bombs & Fire Power -->
+                <div class="text-2xl tracking-widest min-h-[36px] text-left mb-2 flex items-center justify-between" id="bombs-p4">💣💣💣</div>
                 <!-- 操作ミニガイド -->
-                <div id="guide-p4" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold flex justify-between">
-                    <div><span class="text-amber-400 font-black">P 短押し:</span> 右折</div>
-                    <div><span class="text-amber-400 font-black">P 長押し:</span> ボム設置</div>
+                <div id="guide-p4" class="bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-1.5">
+                            <span class="px-1.5 py-0.5 rounded bg-slate-950 border border-amber-400/50 text-amber-300 font-black text-xs shadow-sm">P</span>
+                            <span class="text-slate-200">押す:</span>
+                            <span class="text-amber-300 font-black">前進</span>
+                            <span class="text-slate-400 text-[10px] font-normal">(離して回転)</span>
+                        </div>
+                        <div class="text-amber-300 font-black text-xs">短押し: 💣ボム</div>
+                    </div>
                 </div>
             </div>
 
         </div>
+
+        <!-- ダメージ被弾時 画面赤フラッシュオーバーレイ -->
+        <div id="damage-overlay" class="absolute inset-0 pointer-events-none z-30 opacity-0 transition-opacity duration-150"></div>
 
         <!-- 終了10秒前 画面赤点滅オーバーレイ -->
         <div id="danger-overlay" class="absolute inset-0 pointer-events-none z-30 opacity-0 transition-opacity duration-300"></div>
@@ -282,9 +364,19 @@
                         </div>
                     </div>
                     <!-- アクション -->
-                    <div class="flex items-center gap-10 text-slate-100 text-2xl font-bold">
-                        <div class="flex items-center gap-3.5"><span class="px-4 py-1.5 rounded-xl bg-yellow-500 text-slate-950 font-black text-base shadow">短押し</span> <span>右折 (時計回り)</span></div>
-                        <div class="flex items-center gap-3.5"><span class="px-4 py-1.5 rounded-xl bg-yellow-500 text-slate-950 font-black text-base shadow">長押し</span> <span>ボム設置 (0.5秒)</span></div>
+                    <div class="flex items-center gap-6 text-slate-100 text-lg font-bold">
+                        <div class="flex items-center gap-2.5">
+                            <span class="px-3.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-base shadow">押しっぱなし</span>
+                            <span>前進</span>
+                        </div>
+                        <div class="flex items-center gap-2.5">
+                            <span class="px-3.5 py-1.5 rounded-xl bg-blue-400 text-slate-950 font-black text-base shadow">キー離す</span>
+                            <span>停止＆回転</span>
+                        </div>
+                        <div class="flex items-center gap-2.5">
+                            <span class="px-3.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-base shadow">短押し</span>
+                            <span>💣 ボム設置</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -416,41 +508,51 @@
                 </div>
             </div>
 
-            <!-- BGM & SE 音量 ＆ 移動速度 ＆ リセット設定バー -->
-            <div class="flex flex-row items-center justify-center gap-7 bg-slate-900/85 border-2 border-slate-700/80 rounded-full px-8 py-3 shadow-2xl backdrop-blur-md">
+            <!-- BGM & SE 音量 ＆ 移動速度 ＆ 回転速度 ＆ リセット設定バー -->
+            <div class="flex flex-row items-center justify-center gap-6 bg-slate-900/85 border-2 border-slate-700/80 rounded-full px-7 py-3 shadow-2xl backdrop-blur-md">
                 <!-- BGM音量スライダー -->
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2.5">
                     <span class="text-3xl select-none">🎵</span>
                     <span class="text-2xl font-black text-slate-200">BGM:</span>
-                    <input type="range" id="slider-bgm" min="0" max="100" value="50" class="w-36 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-blue-500 shadow-inner">
+                    <input type="range" id="slider-bgm" min="0" max="100" value="50" class="w-32 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-blue-500 shadow-inner">
                     <span id="text-bgm-val" class="text-2xl font-black text-blue-400 w-16 text-right select-none">50%</span>
                 </div>
 
                 <div class="w-0.5 h-8 bg-slate-700"></div>
 
                 <!-- SE音量スライダー -->
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2.5">
                     <span class="text-3xl select-none">🔊</span>
                     <span class="text-2xl font-black text-slate-200">SE:</span>
-                    <input type="range" id="slider-se" min="0" max="100" value="70" class="w-36 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
+                    <input type="range" id="slider-se" min="0" max="100" value="70" class="w-32 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-yellow-400 shadow-inner">
                     <span id="text-se-val" class="text-2xl font-black text-yellow-400 w-16 text-right select-none">70%</span>
                 </div>
 
                 <div class="w-0.5 h-8 bg-slate-700"></div>
 
                 <!-- プレイヤー移動速度スライダー -->
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2.5">
                     <span class="text-3xl select-none">🏃</span>
-                    <span class="text-2xl font-black text-slate-200">プレイヤー速度:</span>
-                    <input type="range" id="slider-speed" min="50" max="200" step="10" value="100" class="w-36 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-emerald-400 shadow-inner">
+                    <span class="text-2xl font-black text-slate-200">移動速度:</span>
+                    <input type="range" id="slider-speed" min="50" max="200" step="10" value="100" class="w-32 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-emerald-400 shadow-inner">
                     <span id="text-speed-val" class="text-2xl font-black text-emerald-400 w-20 text-right select-none">100%</span>
                 </div>
 
                 <div class="w-0.5 h-8 bg-slate-700"></div>
 
+                <!-- プレイヤー回転速度スライダー -->
+                <div class="flex items-center gap-2.5">
+                    <span class="text-3xl select-none">🔄</span>
+                    <span class="text-2xl font-black text-slate-200">回転速度:</span>
+                    <input type="range" id="slider-rotate" min="10" max="100" step="5" value="60" class="w-32 h-3.5 bg-slate-700 rounded-lg cursor-pointer accent-sky-400 shadow-inner">
+                    <span id="text-rotate-val" class="text-2xl font-black text-sky-400 w-24 text-right select-none">0.50秒</span>
+                </div>
+
+                <div class="w-0.5 h-8 bg-slate-700"></div>
+
                 <!-- 全て初期値に戻すボタン -->
-                <button id="btn-reset-settings-title" class="px-5 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-2 border-slate-600 hover:border-slate-500 text-lg font-black transition-all flex items-center gap-2 hover:scale-105 active:scale-95 cursor-pointer shadow-md">
-                    <span class="text-xl">🔄</span> <span>全て初期値に戻す</span>
+                <button id="btn-reset-settings-title" class="px-5 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-2 border-slate-600 hover:border-slate-500 text-lg font-black transition-all flex items-center gap-2 hover:scale-105 active:scale-95 cursor-pointer shadow-md whitespace-nowrap">
+                    <span class="text-xl">🔄</span> <span>初期値に戻す</span>
                 </button>
             </div>
 
@@ -458,27 +560,64 @@
             <button id="btn-start-game" class="px-36 py-6 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white rounded-full font-black text-6xl shadow-[0_15px_50px_rgba(59,130,246,0.7)] transition-all hover:scale-105 active:scale-95 border-4 border-blue-300/60 tracking-widest cursor-pointer mb-2">スタート</button>
         </div>
 
-        <!-- ゲームオーバー オーバーレイ (1920x1080) -->
-        <div id="overlay" class="absolute inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto hidden transition-opacity duration-500">
-            <h2 id="result-text" class="text-8xl font-black mb-3 drop-shadow-2xl tracking-tighter text-center leading-tight"></h2>
-            <p id="result-subtext" class="text-3xl text-slate-300 mb-6 font-bold text-center"></p>
-            
-            <!-- ランキング一覧コンテナ -->
-            <div id="result-ranking" class="flex flex-col gap-3 mb-8 w-full max-w-2xl bg-slate-900/80 p-5 rounded-3xl border-2 border-slate-700 shadow-2xl backdrop-blur-sm">
-                <!-- 動的にランキング項目が挿入される -->
-            </div>
+        <!-- スプラトゥーン風 結果発表オーバーレイ (1920x1080, 背景透明で中央マップが100%くっきり見える！) -->
+        <div id="overlay" class="absolute inset-0 z-50 pointer-events-auto hidden transition-all duration-500">
+            <!-- 紙吹雪（コンフェッティ）演出用レイヤー -->
+            <div id="confetti-container" class="absolute inset-0 pointer-events-none overflow-hidden z-0"></div>
 
-            <!-- アクションボタン群 (もう一度あそぶ / タイトルに戻る) -->
-            <div class="flex items-center justify-center gap-8">
-                <button id="btn-restart" class="px-20 py-5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white rounded-full font-black text-4xl shadow-[0_15px_40px_rgba(59,130,246,0.6)] transition-all hover:scale-105 active:scale-95 border-4 border-blue-300/50 tracking-wider flex items-center justify-center gap-3 cursor-pointer">
-                    <span class="text-4xl leading-none">🔄</span>
-                    <span>もう一度あそぶ</span>
-                </button>
+            <!-- 結果発表UIレイヤー (中央マップを一切遮らない四隅＋上下余白配置) -->
+            <div id="result-layer" class="absolute inset-0 pointer-events-none z-10">
 
-                <button id="btn-result-to-title" class="px-14 py-5 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full font-black text-3xl border-4 border-slate-600 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3 cursor-pointer shadow-xl tracking-wider">
-                    <span class="text-3xl leading-none">🏠</span>
-                    <span>タイトルに戻る</span>
-                </button>
+                <!-- 隠せるUI要素のコンテナ (ジャッジバナー & 四隅メーター) -->
+                <div id="judge-ui-content" class="absolute inset-0 pointer-events-none transition-opacity duration-300">
+                    <!-- 中央上部（マップ上部余白内）: ジャッジバナー & 勝者告知 -->
+                    <div class="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-auto flex flex-col items-center z-30">
+                        <!-- ジャッジバナー (判定中... ⇄ WINNER!) -->
+                        <div id="judge-banner" class="flex items-center gap-3 px-8 py-2 rounded-full bg-slate-900/90 border-2 border-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.6)] text-2xl font-black text-yellow-300 tracking-wider backdrop-blur-md">
+                            <span id="judge-banner-icon" class="text-3xl">⚖️</span>
+                            <span id="judge-banner-text">ジャッジ集計中...</span>
+                        </div>
+
+                        <!-- 勝者テキスト（勝者決定時にバナー直下にフェードイン） -->
+                        <div id="result-announcement" class="mt-1.5 flex items-center gap-3 bg-slate-950/90 px-6 py-1.5 rounded-full border-2 border-slate-700 shadow-xl backdrop-blur-md opacity-0 transition-opacity duration-300">
+                            <h2 id="result-text" class="text-2xl font-black drop-shadow-md tracking-tight leading-none"></h2>
+                            <span class="text-slate-600 font-bold">|</span>
+                            <p id="result-subtext" class="text-base text-slate-200 font-bold leading-none"></p>
+                        </div>
+                    </div>
+
+                    <!-- 四隅メーター: 各プレイヤーのインク集計メーター (左右余白 440px 内に完全収容・マップ被り0px) -->
+                    <!-- 1P: 画面左上 -->
+                    <div id="judge-card-1" class="absolute left-6 top-6 w-[410px] pointer-events-auto hidden transition-all duration-300"></div>
+
+                    <!-- 2P: 画面右上 -->
+                    <div id="judge-card-2" class="absolute right-6 top-6 w-[410px] pointer-events-auto hidden transition-all duration-300"></div>
+
+                    <!-- 3P: 画面左下 -->
+                    <div id="judge-card-3" class="absolute left-6 bottom-6 w-[410px] pointer-events-auto hidden transition-all duration-300"></div>
+
+                    <!-- 4P: 画面右下 -->
+                    <div id="judge-card-4" class="absolute right-6 bottom-6 w-[410px] pointer-events-auto hidden transition-all duration-300"></div>
+                </div>
+
+                <!-- 中央下部（マップ下部余白内）: アクションボタン群 (もう一度あそぶ / タイトルへ / UIを隠す) -->
+                <div id="result-actions" class="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center justify-center gap-5 opacity-0 transition-opacity duration-500 z-30">
+                    <button id="btn-restart" class="px-9 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white rounded-full font-black text-2xl shadow-[0_8px_25px_rgba(59,130,246,0.6)] transition-all hover:scale-105 active:scale-95 border-2 border-blue-300/50 tracking-wider flex items-center justify-center gap-2.5 cursor-pointer">
+                        <span class="text-2xl leading-none">🔄</span>
+                        <span>もう一度あそぶ</span>
+                    </button>
+
+                    <button id="btn-result-to-title" class="px-7 py-3 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white rounded-full font-black text-xl border-2 border-slate-600 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-xl tracking-wider backdrop-blur-sm">
+                        <span class="text-xl leading-none">🏠</span>
+                        <span>タイトルへ</span>
+                    </button>
+
+                    <button id="btn-toggle-view-map" class="px-6 py-3 bg-slate-900/90 hover:bg-slate-800 text-amber-300 hover:text-yellow-200 rounded-full font-black text-xl border-2 border-amber-500/80 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-xl tracking-wider backdrop-blur-sm">
+                        <span id="icon-toggle-map" class="text-xl leading-none">🗺️</span>
+                        <span id="text-toggle-map">UIを隠す</span>
+                    </button>
+                </div>
+
             </div>
         </div>
 
@@ -647,6 +786,21 @@
                         <div class="flex items-center gap-6">
                             <input type="range" id="slider-settings-speed" min="50" max="200" step="10" value="100" class="w-80 h-4 bg-slate-700 rounded-lg cursor-pointer accent-emerald-400 shadow-inner">
                             <span id="text-settings-speed-val" class="text-3xl font-black text-emerald-400 w-28 text-right select-none">100%</span>
+                        </div>
+                    </div>
+
+                    <!-- プレイヤー回転速度設定 -->
+                    <div class="flex items-center justify-between bg-slate-800/80 px-10 py-5 rounded-2xl border border-slate-600/60 shadow-lg mt-1">
+                        <div class="flex items-center gap-4">
+                            <span class="text-5xl select-none">🔄</span>
+                            <div class="flex flex-col">
+                                <span class="text-3xl font-black text-white">プレイヤー回転速度</span>
+                                <span class="text-lg text-slate-400 font-bold">停止時の90度回転スピード（デフォルト: 0.50秒 / 右ほど高速）</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-6">
+                            <input type="range" id="slider-settings-rotate" min="10" max="100" step="5" value="60" class="w-80 h-4 bg-slate-700 rounded-lg cursor-pointer accent-sky-400 shadow-inner">
+                            <span id="text-settings-rotate-val" class="text-3xl font-black text-sky-400 w-28 text-right select-none">0.50秒</span>
                         </div>
                     </div>
                 </div>
@@ -919,11 +1073,94 @@
 
     // プレイヤー＆CPUのカラー設定（1P:緑, 2P:赤, 3P:青, 4P:黄）
     const PLAYER_COLORS = {
-        1: { name: '1P', shortName: '1P', fill: '#10b981', rgb: '16, 185, 129', textClass: 'text-emerald-400', badgeClass: 'bg-emerald-600', colorName: '緑', keyName: 'Q' },
-        2: { name: '2P', shortName: '2P', fill: '#ef4444', rgb: '239, 68, 68', textClass: 'text-red-400', badgeClass: 'bg-red-600', colorName: '赤', keyName: 'R' },
-        3: { name: '3P', shortName: '3P', fill: '#3b82f6', rgb: '59, 130, 246', textClass: 'text-blue-400', badgeClass: 'bg-blue-600', colorName: '青', keyName: 'U' },
-        4: { name: '4P', shortName: '4P', fill: '#f59e0b', rgb: '245, 158, 11', textClass: 'text-amber-400', badgeClass: 'bg-amber-600', colorName: '黄', keyName: 'P' }
+        1: { 
+            name: '1P', shortName: '1P', fill: '#10b981', rgb: '16, 185, 129', 
+            textClass: 'text-emerald-400', badgeClass: 'bg-emerald-600', colorName: '緑', keyName: 'Q',
+            fire: {
+                highlight: '#a7f3d0', // emerald-200 (白熱の淡緑)
+                core: '#34d399',      // emerald-400
+                main: '#10b981',      // emerald-500
+                shadow: '#047857',    // emerald-700
+                dark: '#064e3b',      // emerald-900 (外枠フチ)
+                glowRgb: '16, 185, 129',
+                ringClass: 'ring-emerald-500',
+                shadowClass: 'shadow-[0_0_40px_rgba(16,185,129,1)]',
+                badgeGradient: 'from-emerald-600 to-teal-500',
+                badgeBorder: 'border-emerald-400',
+                badgeShadow: 'rgba(16,185,129,0.9)'
+            }
+        },
+        2: { 
+            name: '2P', shortName: '2P', fill: '#ef4444', rgb: '239, 68, 68', 
+            textClass: 'text-red-400', badgeClass: 'bg-red-600', colorName: '赤', keyName: 'R',
+            fire: {
+                highlight: '#fef08a', // yellow-200 (白熱の淡黄・真紅の炎)
+                core: '#fb7185',      // rose-400
+                main: '#ef4444',      // red-500
+                shadow: '#b91c1c',    // red-700
+                dark: '#7f1d1d',      // red-900 (外枠フチ)
+                glowRgb: '239, 68, 68',
+                ringClass: 'ring-red-500',
+                shadowClass: 'shadow-[0_0_40px_rgba(239,68,68,1)]',
+                badgeGradient: 'from-red-600 to-rose-500',
+                badgeBorder: 'border-red-400',
+                badgeShadow: 'rgba(239,68,68,0.9)'
+            }
+        },
+        3: { 
+            name: '3P', shortName: '3P', fill: '#3b82f6', rgb: '59, 130, 246', 
+            textClass: 'text-blue-400', badgeClass: 'bg-blue-600', colorName: '青', keyName: 'U',
+            fire: {
+                highlight: '#dbeafe', // blue-100 (白熱の淡青・蒼炎)
+                core: '#60a5fa',      // blue-400
+                main: '#3b82f6',      // blue-500
+                shadow: '#1d4ed8',    // blue-700
+                dark: '#1e3a8a',      // blue-900 (外枠フチ)
+                glowRgb: '59, 130, 246',
+                ringClass: 'ring-blue-500',
+                shadowClass: 'shadow-[0_0_40px_rgba(59,130,246,1)]',
+                badgeGradient: 'from-blue-600 to-cyan-500',
+                badgeBorder: 'border-blue-400',
+                badgeShadow: 'rgba(59,130,246,0.9)'
+            }
+        },
+        4: { 
+            name: '4P', shortName: '4P', fill: '#f59e0b', rgb: '245, 158, 11', 
+            textClass: 'text-amber-400', badgeClass: 'bg-amber-600', colorName: '黄', keyName: 'P',
+            fire: {
+                highlight: '#fef9c3', // yellow-100 (白熱の淡黄・金炎)
+                core: '#fbbf24',      // amber-400
+                main: '#f59e0b',      // amber-500
+                shadow: '#b45309',    // amber-700
+                dark: '#78350f',      // amber-900 (外枠フチ)
+                glowRgb: '245, 158, 11',
+                ringClass: 'ring-amber-500',
+                shadowClass: 'shadow-[0_0_40px_rgba(245,158,11,1)]',
+                badgeGradient: 'from-amber-600 to-yellow-500',
+                badgeBorder: 'border-amber-400',
+                badgeShadow: 'rgba(245,158,11,0.9)'
+            }
+        }
     };
+
+    function getPlayerFirePalette(colorId) {
+        if (PLAYER_COLORS[colorId] && PLAYER_COLORS[colorId].fire) {
+            return PLAYER_COLORS[colorId].fire;
+        }
+        return {
+            highlight: '#fef08a',
+            core: '#fb923c',
+            main: '#ef4444',
+            shadow: '#b91c1c',
+            dark: '#7f1d1d',
+            glowRgb: '239, 68, 68',
+            ringClass: 'ring-orange-500',
+            shadowClass: 'shadow-[0_0_40px_rgba(249,115,22,1)]',
+            badgeGradient: 'from-orange-600 to-amber-600',
+            badgeBorder: 'border-orange-400',
+            badgeShadow: 'rgba(249,115,22,0.9)'
+        };
+    }
     const COLOR_P1 = PLAYER_COLORS[1].fill;
     const COLOR_BG = '#1e293b'; // slate-800
 
@@ -946,6 +1183,7 @@
     let grid = [];
     let paintGrid = []; 
     let totalFloorTiles = 0;
+    let latestScores = { 1: 0, 2: 0, 3: 0, 4: 0 };
     
     let player = null;
     let allCharacters = [];
@@ -954,6 +1192,16 @@
     let explosions = [];
     let items = [];
     let floatingTexts = [];
+    let damageParticles = []; // ダメージ・被弾演出用パーティクル
+
+    // 画面揺れ（スクリーンシェイク）用変数
+    let screenShakeTimer = 0;
+    let screenShakeDuration = 0;
+    let screenShakeIntensity = 0;
+
+    // ダメージ被弾フラッシュ（ダメージビネット）用変数
+    let damageVignetteTimer = 0;
+    let damageVignetteMax = 0.25;
     
     let gameTime = 60; 
     let isGameRunning = false;
@@ -967,6 +1215,9 @@
     let lastStartSecond = -1; // 開始カウント音/表示切り替え用
     let lastEndSecond = -1; // 終了カウント音/表示切り替え用
     let isTimeUpPending = false; // タイムアップ演出中フラグ
+    let judgingAnimFrameId = null; // スプラトゥーン風集計アニメーションフレームID
+    let isMapOnlyView = false; // マップだけを見るモードフラグ
+    let judgingTimeouts = []; // ジャッジ演出用タイムアウト管理
     let isDangerAlertTriggered = false; // 終了10秒前突入時の1回きり警告音用
 
     // オーディオ設定＆ノード管理
@@ -1418,6 +1669,101 @@
                     osc.start(startTime);
                     osc.stop(startTime + 0.09);
                 });
+            } else if (type === 'powerup') {
+                // パワーアップ・火力UP音 (力強い高揚和音ファンファーレ ＋ 重厚な火炎着火音)
+                const bassOsc = audioCtx.createOscillator();
+                const bassGain = audioCtx.createGain();
+                bassOsc.connect(bassGain);
+                bassGain.connect(seGainNode);
+                bassOsc.type = 'sine';
+                bassOsc.frequency.setValueAtTime(240, t);
+                bassOsc.frequency.exponentialRampToValueAtTime(55, t + 0.35);
+                bassGain.gain.setValueAtTime(0.45, t);
+                bassGain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                bassOsc.start(t);
+                bassOsc.stop(t + 0.35);
+
+                if (noiseBuffer) {
+                    const noise = audioCtx.createBufferSource();
+                    noise.buffer = noiseBuffer;
+                    const filter = audioCtx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(1800, t);
+                    filter.frequency.exponentialRampToValueAtTime(350, t + 0.3);
+                    const nGain = audioCtx.createGain();
+                    noise.connect(filter);
+                    filter.connect(nGain);
+                    nGain.connect(seGainNode);
+                    nGain.gain.setValueAtTime(0.35, t);
+                    nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+                    noise.start(t);
+                    noise.stop(t + 0.3);
+                }
+
+                const pitches = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98];
+                pitches.forEach((freq, idx) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(seGainNode);
+                    osc.type = 'triangle';
+                    const startTime = t + idx * 0.04;
+                    osc.frequency.setValueAtTime(freq, startTime);
+                    gain.gain.setValueAtTime(0.001, startTime);
+                    gain.gain.linearRampToValueAtTime(0.38, startTime + 0.012);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.22);
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.24);
+                });
+            } else if (type === 'whistle') {
+                // 試合終了ホイッスル (ピピッー！)
+                const osc1 = audioCtx.createOscillator();
+                const osc2 = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(seGainNode);
+                osc1.type = 'sine';
+                osc2.type = 'triangle';
+                osc1.frequency.setValueAtTime(2500, t);
+                osc2.frequency.setValueAtTime(2800, t);
+                gain.gain.setValueAtTime(0.001, t);
+                gain.gain.linearRampToValueAtTime(0.4, t + 0.02);
+                gain.gain.setValueAtTime(0.4, t + 0.14);
+                gain.gain.linearRampToValueAtTime(0.08, t + 0.18);
+                gain.gain.linearRampToValueAtTime(0.45, t + 0.22);
+                gain.gain.setValueAtTime(0.45, t + 0.65);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+                osc1.start(t);
+                osc2.start(t);
+                osc1.stop(t + 0.8);
+                osc2.stop(t + 0.8);
+            } else if (type === 'count_blip') {
+                // スプラトゥーン風集計メーター上昇音 (小気味良いビート音)
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sine';
+                const f = 650 + Math.random() * 250;
+                osc.frequency.setValueAtTime(f, t);
+                gain.gain.setValueAtTime(0.15, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+                osc.start(t);
+                osc.stop(t + 0.05);
+            } else if (type === 'winner_gong') {
+                // 勝者決定の重厚なドーン！音
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(260, t);
+                osc.frequency.exponentialRampToValueAtTime(90, t + 0.5);
+                gain.gain.setValueAtTime(0.45, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+                osc.start(t);
+                osc.stop(t + 0.6);
             } else if (type === 'hit') {
                 // 被弾・ダウン音 (バシュッ)
                 if (noiseBuffer) {
@@ -1446,6 +1792,48 @@
                 gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
                 osc.start(t);
                 osc.stop(t + 0.2);
+            } else if (type === 'damage_slip') {
+                // スリップダメージ音 (チリッ・ジジッ)
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(260, t);
+                osc.frequency.exponentialRampToValueAtTime(110, t + 0.06);
+                gain.gain.setValueAtTime(0.12, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+                osc.start(t);
+                osc.stop(t + 0.06);
+            } else if (type === 'damage_heavy') {
+                // 爆弾被弾・大ダメージ撃破音 (ドッカーン・重低音クラッシュ)
+                if (noiseBuffer) {
+                    const noise = audioCtx.createBufferSource();
+                    noise.buffer = noiseBuffer;
+                    const filter = audioCtx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(1400, t);
+                    filter.frequency.exponentialRampToValueAtTime(100, t + 0.4);
+                    const nGain = audioCtx.createGain();
+                    noise.connect(filter);
+                    filter.connect(nGain);
+                    nGain.connect(seGainNode);
+                    nGain.gain.setValueAtTime(0.5, t);
+                    nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+                    noise.start(t);
+                    noise.stop(t + 0.4);
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(seGainNode);
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(360, t);
+                osc.frequency.exponentialRampToValueAtTime(45, t + 0.35);
+                gain.gain.setValueAtTime(0.4, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                osc.start(t);
+                osc.stop(t + 0.35);
             } else if (type === 'ui_click') {
                 // ボタン操作音 (カチッ)
                 const osc = audioCtx.createOscillator();
@@ -1495,8 +1883,8 @@
         overlay.classList.remove('hidden');
         cdText.innerText = text;
 
-        // 文字数に応じた迫力のフォントサイズ調整（数字は270px、英単語は160px）
-        const fontSizeClass = text.length <= 2 ? 'text-[270px]' : 'text-[160px]';
+        // 文字数に応じた迫力のフォントサイズ調整（1〜2文字: 270px、3〜7文字: 160px、8文字以上: 100px）
+        const fontSizeClass = text.length <= 2 ? 'text-[270px]' : (text.length <= 7 ? 'text-[160px]' : 'text-[100px]');
 
         cdText.className = `font-black ${fontSizeClass} leading-none select-none tracking-wider countdown-text-stroke ${colorClass} animate-countdown-pop`;
         // CSSアニメーションを毎回最初から再生させるリフロー
@@ -1579,8 +1967,10 @@
     let autoBombInterval = 3.0; // オートボムの設置間隔（秒）
     let isGuideArrow = true; // 進行ガイドインジケーターのON/OFF状態
     let isInfiniteBomb = false; // 爆弾無限モードのON/OFF状態
+    let isPowerItemSpawned = false; // 残り30秒威力アップアイテム出現フラグ
     let playerSpeedMultiplier = 1.0; // プレイヤーの移動速度倍率（0.5〜2.0、デフォルト1.0）
-    const HOLD_THRESHOLD = 500; // 長押し判定のしきい値(ミリ秒)。0.5秒
+    let playerRotateInterval = 0.5; // プレイヤーの90度回転間隔（秒。0.10〜1.00秒、デフォルト0.50秒）
+    const SHORT_PRESS_THRESHOLD = 250; // 短押し判定のしきい値(ミリ秒)。250ms以内の離しでボム設置
 
     const DIRS = [
         { dx: 0, dy: -1 }, // 上
@@ -1591,10 +1981,10 @@
 
     // スロットごとのキー入力管理（1P:Q, 2P:R, 3P:U, 4P:P）
     const keyStates = {
-        1: { isDown: false, downTime: 0, holdTriggered: false },
-        2: { isDown: false, downTime: 0, holdTriggered: false },
-        3: { isDown: false, downTime: 0, holdTriggered: false },
-        4: { isDown: false, downTime: 0, holdTriggered: false }
+        1: { isDown: false, downTime: 0 },
+        2: { isDown: false, downTime: 0 },
+        3: { isDown: false, downTime: 0 },
+        4: { isDown: false, downTime: 0 }
     };
 
     function getSlotFromEvent(e) {
@@ -1624,9 +2014,9 @@
         if (!char || !char.isHuman || char.respawnTimer > 0) return;
 
         e.preventDefault();
-        keyStates[slot].isDown = true;
-        keyStates[slot].downTime = Date.now();
-        keyStates[slot].holdTriggered = false;
+        const ks = keyStates[slot];
+        ks.isDown = true;
+        ks.downTime = Date.now();
     });
 
     window.addEventListener('keyup', (e) => {
@@ -1639,41 +2029,282 @@
         ks.isDown = false;
         e.preventDefault();
 
-        if (!isGameRunning || isGamePaused || isStartCountdownActive || isTimeUpPending) return;
-
         const char = charactersBySlot[slot];
-        if (char && char.isHuman && !ks.holdTriggered && char.respawnTimer <= 0) {
-            char.handleInput('tap'); // 短押し: 右折 (時計回り)
+        if (char && char.isHuman && char.respawnTimer <= 0) {
+            const elapsed = Date.now() - ks.downTime;
+            // 250ms以内の短い押下（短押し）なら足元にボム設置！
+            if (elapsed <= SHORT_PRESS_THRESHOLD) {
+                if (!isAutoBomb) {
+                    char.placeBomb();
+                }
+            }
+            // キーを離したので停止し、その場回転を再開
+            char.isMoving = false;
+            char.rotateTimer = 0;
         }
     });
 
-    // 画面上に浮かび上がる演出テキスト（撃破ボーナス通知等）
+    // ==========================================
+    // ダメージ・被弾演出用パーティクル & エフェクト管理
+    // ==========================================
+    class DamageParticle {
+        constructor(x, y, color, type = 'splash') {
+            this.x = x;
+            this.y = y;
+            this.color = color;
+            this.type = type; // 'splash' | 'spark' | 'debris' | 'ring'
+            
+            if (type === 'splash') {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 40 + Math.random() * 140;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.radius = 4 + Math.random() * 6;
+                this.maxLife = 0.35 + Math.random() * 0.25;
+                this.life = this.maxLife;
+                this.gravity = 140;
+            } else if (type === 'spark') {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 90 + Math.random() * 200;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.radius = 2.5 + Math.random() * 3.5;
+                this.maxLife = 0.25 + Math.random() * 0.2;
+                this.life = this.maxLife;
+                this.gravity = 60;
+            } else if (type === 'debris') {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 70 + Math.random() * 180;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.size = 6 + Math.random() * 8;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.vRot = (Math.random() - 0.5) * 16;
+                this.maxLife = 0.4 + Math.random() * 0.3;
+                this.life = this.maxLife;
+                this.gravity = 220;
+            } else if (type === 'ring') {
+                this.radius = 8;
+                this.maxRadius = 60 + Math.random() * 30;
+                this.maxLife = 0.35;
+                this.life = this.maxLife;
+                this.lineWidth = 6;
+            }
+        }
+
+        update(dt) {
+            this.life -= dt;
+            if (this.life <= 0) return true;
+
+            if (this.type === 'ring') {
+                const progress = 1 - (this.life / this.maxLife);
+                this.currentRadius = this.radius + (this.maxRadius - this.radius) * progress;
+                this.currentLineWidth = Math.max(1, this.lineWidth * (1 - progress));
+                return false;
+            }
+
+            this.x += this.vx * dt;
+            this.y += this.vy * dt;
+            if (this.gravity) this.vy += this.gravity * dt;
+            this.vx *= (1 - dt * 2.5);
+
+            if (this.type === 'debris') {
+                this.rotation += this.vRot * dt;
+            }
+            return false;
+        }
+
+        draw() {
+            const alpha = Math.max(0, Math.min(1, this.life / this.maxLife));
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            if (this.type === 'ring') {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.currentRadius, 0, Math.PI * 2);
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = this.currentLineWidth;
+                ctx.stroke();
+            } else if (this.type === 'debris') {
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(-this.size / 2, -this.size / 2, this.size, this.size);
+            } else if (this.type === 'spark') {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * alpha, 0, Math.PI * 2);
+                ctx.fill();
+            } else { // splash
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * (0.5 + 0.5 * alpha), 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+    }
+
+    // スリップダメージ用エフェクト（足元の敵色飛沫・火花）
+    function createSlipDamageEffect(x, y, tileColorId, charColor) {
+        const tileColor = PLAYER_COLORS[tileColorId] ? PLAYER_COLORS[tileColorId].fill : '#ef4444';
+        for (let i = 0; i < 3; i++) {
+            damageParticles.push(new DamageParticle(x + (Math.random() - 0.5) * 20, y + 10, tileColor, 'splash'));
+        }
+        damageParticles.push(new DamageParticle(x, y, '#ffffff', 'spark'));
+    }
+
+    // 爆風被弾・撃破時のド派手な大爆散エフェクト
+    function createHeavyDamageEffect(x, y, charColor, killerColorId = null) {
+        const kColor = killerColorId && PLAYER_COLORS[killerColorId] ? PLAYER_COLORS[killerColorId].fill : '#ef4444';
+        
+        // 衝撃波リング（白色とキャラ色）
+        damageParticles.push(new DamageParticle(x, y, '#ffffff', 'ring'));
+        damageParticles.push(new DamageParticle(x, y, charColor, 'ring'));
+
+        // 放射状のインク飛沫（キャラ色）
+        for (let i = 0; i < 18; i++) {
+            damageParticles.push(new DamageParticle(x, y, charColor, 'splash'));
+        }
+        // 敵のペイント飛沫
+        for (let i = 0; i < 10; i++) {
+            damageParticles.push(new DamageParticle(x, y, kColor, 'splash'));
+        }
+        // キラッと光る火花
+        for (let i = 0; i < 14; i++) {
+            const sparkColor = Math.random() < 0.5 ? '#ffffff' : '#fde047';
+            damageParticles.push(new DamageParticle(x, y, sparkColor, 'spark'));
+        }
+        // キャラクターの四角い破片パーツ
+        for (let i = 0; i < 6; i++) {
+            damageParticles.push(new DamageParticle(x, y, charColor, 'debris'));
+        }
+    }
+
+    // 画面揺れ（スクリーンシェイク）発生関数
+    function triggerScreenShake(intensity = 10, duration = 0.25) {
+        if (intensity > screenShakeIntensity || screenShakeTimer <= 0) {
+            screenShakeIntensity = intensity;
+            screenShakeDuration = duration;
+            screenShakeTimer = duration;
+        }
+    }
+
+    // 被弾フラッシュ（画面赤フラッシュ・ビネット）発生関数
+    function triggerDamageVignette(isHeavy = false) {
+        const overlay = document.getElementById('damage-overlay');
+        if (!overlay) return;
+        damageVignetteMax = isHeavy ? 0.35 : 0.2;
+        damageVignetteTimer = damageVignetteMax;
+        overlay.style.opacity = isHeavy ? '0.85' : '0.45';
+    }
+
+    function updateDamageVignette(dt) {
+        const overlay = document.getElementById('damage-overlay');
+        if (!overlay) return;
+        if (damageVignetteTimer > 0) {
+            damageVignetteTimer -= dt;
+            if (damageVignetteTimer <= 0) {
+                overlay.style.opacity = '0';
+            } else {
+                const ratio = damageVignetteTimer / damageVignetteMax;
+                overlay.style.opacity = (ratio * (damageVignetteMax > 0.25 ? 0.85 : 0.45)).toFixed(2);
+            }
+        }
+    }
+
+    // ステータスパネルの被弾揺れトリガー
+    function triggerPanelDamageShake(slot) {
+        const panel = document.getElementById(`panel-p${slot}`);
+        if (!panel) return;
+        panel.classList.remove('animate-damage-shake');
+        void panel.offsetWidth; // リフローを強制
+        panel.classList.add('animate-damage-shake');
+        setTimeout(() => {
+            panel.classList.remove('animate-damage-shake');
+        }, 360);
+    }
+
+    // ステータスパネルの火力アップ時の炎フラッシュ＆強調アニメーション（プレイヤーカラー対応）
+    function triggerPanelFireUp(slot) {
+        const panel = document.getElementById(`panel-p${slot}`);
+        if (!panel) return;
+        const cfg = SLOT_CONFIGS.find(c => c.slot === slot);
+        const pal = getPlayerFirePalette(cfg ? cfg.colorId : slot);
+        const ringCls = pal.ringClass || 'ring-orange-500';
+        const shadowCls = pal.shadowClass || 'shadow-[0_0_40px_rgba(249,115,22,1)]';
+
+        // 全色のリング・シャドウクラスを削除
+        panel.classList.remove(
+            'ring-4', 'scale-[1.03]',
+            'ring-emerald-500', 'shadow-[0_0_40px_rgba(16,185,129,1)]',
+            'ring-red-500', 'shadow-[0_0_40px_rgba(239,68,68,1)]',
+            'ring-blue-500', 'shadow-[0_0_40px_rgba(59,130,246,1)]',
+            'ring-amber-500', 'shadow-[0_0_40px_rgba(245,158,11,1)]',
+            'ring-orange-500', 'shadow-[0_0_40px_rgba(249,115,22,1)]'
+        );
+        void panel.offsetWidth; // リフロー
+        panel.classList.add('ring-4', ringCls, shadowCls, 'scale-[1.03]');
+        setTimeout(() => {
+            panel.classList.remove('ring-4', ringCls, shadowCls, 'scale-[1.03]');
+        }, 900);
+    }
+
+    // 火力アップアイテム獲得時の火炎バーストエフェクト（プレイヤーカラーの炎が爆散！）
+    function createFireUpBurstEffect(x, y, charColor, colorId = 1) {
+        const pal = getPlayerFirePalette(colorId);
+
+        // 衝撃波リング（プレイヤーメイン色・ハイライト色・白）
+        damageParticles.push(new DamageParticle(x, y, pal.main, 'ring'));
+        damageParticles.push(new DamageParticle(x, y, pal.highlight, 'ring'));
+        damageParticles.push(new DamageParticle(x, y, '#ffffff', 'ring'));
+
+        // 四方八方へ吹き出す炎の飛沫（プレイヤーカラーの炎）
+        for (let i = 0; i < 22; i++) {
+            const colors = [pal.main, pal.core, pal.highlight, '#ffffff'];
+            const c = colors[Math.floor(Math.random() * colors.length)];
+            damageParticles.push(new DamageParticle(x, y, c, 'splash'));
+        }
+
+        // キラキラ立ち上る火花スパーク
+        for (let i = 0; i < 18; i++) {
+            const sparkColor = Math.random() < 0.6 ? '#ffffff' : pal.highlight;
+            damageParticles.push(new DamageParticle(x, y, sparkColor, 'spark'));
+        }
+    }
+
+    // 画面上に浮かび上がる演出テキスト（フォントサイズ・表示時間カスタム対応）
     class FloatingText {
-        constructor(x, y, text, color = '#facc15') {
+        constructor(x, y, text, color = '#facc15', fontSize = 24, duration = 1.2) {
             this.x = x;
             this.y = y;
             this.text = text;
             this.color = color;
-            this.timer = 1.2;
-            this.maxTimer = 1.2;
+            this.fontSize = fontSize;
+            this.timer = duration;
+            this.maxTimer = duration;
         }
 
         update(dt) {
             this.timer -= dt;
-            this.y -= 40 * dt; // 上にフワッと上昇
+            this.y -= (35 * (this.fontSize / 24)) * dt; // 上にフワッと上昇
             return this.timer <= 0;
         }
 
         draw() {
             const alpha = Math.max(0, Math.min(1, this.timer / 0.35));
             ctx.save();
-            ctx.font = '900 24px "Noto Sans JP", sans-serif';
+            ctx.font = `900 ${this.fontSize}px "Noto Sans JP", sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
             // 漆黒の極太アウトライン
             ctx.strokeStyle = `rgba(2, 6, 23, ${alpha * 0.95})`;
-            ctx.lineWidth = 6;
+            ctx.lineWidth = Math.max(5, this.fontSize * 0.25);
             ctx.strokeText(this.text, this.x, this.y);
             
             // 文字本体
@@ -1686,6 +2317,7 @@
 
     class ItemBombUp {
         constructor(gridX, gridY) {
+            this.type = 'bomb';
             this.gridX = gridX;
             this.gridY = gridY;
             this.x = gridX * TILE_SIZE + TILE_SIZE / 2;
@@ -1707,6 +2339,44 @@
         }
     }
 
+    class ItemFireUp {
+        constructor(gridX, gridY) {
+            this.type = 'fire';
+            this.gridX = gridX;
+            this.gridY = gridY;
+            this.x = gridX * TILE_SIZE + TILE_SIZE / 2;
+            this.y = gridY * TILE_SIZE + TILE_SIZE / 2;
+            this.floatOffset = 0;
+            this.time = Math.random() * 10;
+        }
+
+        update(dt) {
+            this.time += dt;
+            this.floatOffset = Math.sin(this.time * 4) * (TILE_SIZE * 0.12);
+        }
+
+        draw() {
+            // 背景の炎オーラ（パルスアニメーション）
+            ctx.save();
+            const glowRadius = TILE_SIZE * 0.42 + Math.sin(this.time * 6) * 3;
+            const grad = ctx.createRadialGradient(this.x, this.y + this.floatOffset, 0, this.x, this.y + this.floatOffset, glowRadius);
+            grad.addColorStop(0, 'rgba(251, 146, 60, 0.7)');
+            grad.addColorStop(0.6, 'rgba(239, 68, 68, 0.3)');
+            grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y + this.floatOffset, glowRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 炎アイコン
+            ctx.font = `${TILE_SIZE * 0.65}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🔥', this.x, this.y + this.floatOffset);
+            ctx.restore();
+        }
+    }
+
     class Bomb {
         constructor(x, y, owner, range) {
             this.x = x;
@@ -1717,13 +2387,19 @@
             this.range = range;
             this.timer = 2.0; 
             this.color = PLAYER_COLORS[owner] ? PLAYER_COLORS[owner].fill : '#3b82f6';
+            this.firePalette = getPlayerFirePalette(owner);
             this.radius = TILE_SIZE * 0.35;
             this.pulse = 0;
+            this.isFireBomb = range > 2; // 火力強化ボム判定
+            this.previewTimer = 0.55; // 設置直後の十字射程プレビュータイマー
         }
 
         update(dt) {
             this.timer -= dt;
-            this.pulse += dt * 10;
+            this.pulse += dt * (this.isFireBomb ? 14 : 10);
+            if (this.previewTimer > 0) {
+                this.previewTimer -= dt;
+            }
             if (this.timer <= 0) {
                 this.explode();
                 return true; 
@@ -1733,7 +2409,13 @@
 
         explode() {
             playSound('explosion');
-            explosions.push(new Explosion(this.gridX, this.gridY, this.owner));
+            if (this.isFireBomb) {
+                // 強化ファイヤーボム爆発時の画面シェイクと衝撃波（プレイヤーカラー）
+                triggerScreenShake(12, 0.24);
+                damageParticles.push(new DamageParticle(this.x, this.y, this.firePalette.main, 'ring'));
+                damageParticles.push(new DamageParticle(this.x, this.y, this.firePalette.highlight, 'spark'));
+            }
+            explosions.push(new Explosion(this.gridX, this.gridY, this.owner, this.isFireBomb));
             
             const dirs = [ [0, -1], [0, 1], [-1, 0], [1, 0] ];
             for (let d of dirs) {
@@ -1746,48 +2428,191 @@
                     
                     if (grid[ty][tx] === TILE_BLOCK) {
                         grid[ty][tx] = TILE_EMPTY;
-                        explosions.push(new Explosion(tx, ty, this.owner));
-                        // ブロック破壊時に50%の確率で爆弾アイテムが出現（爆弾無限モード時は出現させない）
+                        explosions.push(new Explosion(tx, ty, this.owner, this.isFireBomb));
+                        // ブロック破壊時に50%の確率でアイテムが出現（爆弾無限モード時は出現させない）
                         if (!isInfiniteBomb && Math.random() < 0.5 && items.length < 12) {
-                            items.push(new ItemBombUp(tx, ty));
+                            if (gameTime <= 30.0 && Math.random() < 0.5) {
+                                items.push(new ItemFireUp(tx, ty));
+                            } else {
+                                items.push(new ItemBombUp(tx, ty));
+                            }
                         }
                         break; 
                     }
-                    explosions.push(new Explosion(tx, ty, this.owner));
+                    explosions.push(new Explosion(tx, ty, this.owner, this.isFireBomb));
                 }
             }
         }
 
         draw() {
+            const pal = this.firePalette || getPlayerFirePalette(this.owner);
+
+            // 1. 十字爆破範囲プレビュー（通常ボム・ファイヤーボム共に爆発するまでプレイヤーカラーで常時くっきり表示！）
+            ctx.save();
+            // ボムの鼓動（pulse）に合わせて呼吸するようにパルス
+            const pulseFactor = Math.sin(this.pulse) * 0.5 + 0.5; // 0〜1
+            const isNearExplode = this.timer <= 0.6; // 爆発直前フラグ（点滅加速）
+
+            // 通常ボム・ファイヤーボムそれぞれの透過度（ファイヤーボムはより高輝度、通常ボムもしっかり視認可能）
+            const baseAlpha = this.isFireBomb ? 0.38 : 0.30;
+            const dynamicAlpha = baseAlpha + (pulseFactor * (isNearExplode ? 0.25 : 0.12));
+
+            ctx.fillStyle = `rgba(${pal.glowRgb}, ${dynamicAlpha})`;
+            ctx.strokeStyle = `rgba(${pal.glowRgb}, ${Math.min(0.95, dynamicAlpha + 0.38)})`;
+            ctx.lineWidth = this.isFireBomb ? 2.5 : 2.0;
+
+            const dirs = [ [0, -1], [0, 1], [-1, 0], [1, 0] ];
+            for (let d of dirs) {
+                for (let i = 1; i <= this.range; i++) {
+                    const tx = this.gridX + d[0] * i;
+                    const ty = this.gridY + d[1] * i;
+                    if (tx < 0 || tx >= GRID_WIDTH || ty < 0 || ty >= GRID_HEIGHT) break;
+                    if (grid[ty][tx] === TILE_WALL) break;
+
+                    // 床マスにプレイヤーカラーの角丸爆破範囲タイルを描画
+                    const px = tx * TILE_SIZE + 4;
+                    const py = ty * TILE_SIZE + 4;
+                    const pw = TILE_SIZE - 8;
+                    const ph = TILE_SIZE - 8;
+
+                    ctx.beginPath();
+                    if (ctx.roundRect) {
+                        ctx.roundRect(px, py, pw, ph, 8);
+                    } else {
+                        ctx.rect(px, py, pw, ph);
+                    }
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // 射程終端マスに目印マーカードットを表示
+                    const isTerminal = (i === this.range) || 
+                        (i < this.range && (
+                            tx + d[0] < 0 || tx + d[0] >= GRID_WIDTH || 
+                            ty + d[1] < 0 || ty + d[1] >= GRID_HEIGHT || 
+                            grid[ty + d[1]][tx + d[0]] === TILE_WALL
+                        ));
+                    if (isTerminal) {
+                        ctx.fillStyle = `rgba(${pal.glowRgb}, ${Math.min(1, dynamicAlpha + 0.35)})`;
+                        ctx.beginPath();
+                        ctx.arc(px + pw / 2, py + ph / 2, 4 + pulseFactor * 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = `rgba(${pal.glowRgb}, ${dynamicAlpha})`; // 元のfillに戻す
+                    }
+
+                    if (grid[ty][tx] === TILE_BLOCK) break;
+                }
+            }
+
+            // ボム設置マス自身の足元にも爆破起点として柔らかい枠を表示
+            const selfPx = this.gridX * TILE_SIZE + 4;
+            const selfPy = this.gridY * TILE_SIZE + 4;
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(selfPx, selfPy, TILE_SIZE - 8, TILE_SIZE - 8, 8);
+            } else {
+                ctx.rect(selfPx, selfPy, TILE_SIZE - 8, TILE_SIZE - 8);
+            }
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+
             const currentRadius = this.radius + Math.sin(this.pulse) * (TILE_SIZE * 0.05);
+
+            // 2. ボムの光輪オーラ（ファイヤーボム: 炎光輪＋火の粉、通常ボム: 脈動インク光輪オーラ）
+            if (this.isFireBomb) {
+                ctx.save();
+                const flameRadius = currentRadius * 1.5 + Math.sin(this.pulse * 1.5) * 4;
+                const fireGrad = ctx.createRadialGradient(this.x, this.y, currentRadius * 0.35, this.x, this.y, flameRadius);
+                fireGrad.addColorStop(0, `rgba(${pal.glowRgb}, 0.88)`);
+                fireGrad.addColorStop(0.55, `rgba(${pal.glowRgb}, 0.35)`);
+                fireGrad.addColorStop(1, `rgba(${pal.glowRgb}, 0)`);
+                ctx.fillStyle = fireGrad;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, flameRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 炎のゆらめく小さな火の粉（プレイヤーカラー）
+                const sparkCount = 3;
+                ctx.fillStyle = pal.highlight;
+                for (let s = 0; s < sparkCount; s++) {
+                    const sAngle = (s / sparkCount) * Math.PI * 2 + this.pulse * 0.6;
+                    const sDist = currentRadius * 1.15 + Math.sin(this.pulse * 2 + s) * 3;
+                    ctx.beginPath();
+                    ctx.arc(this.x + Math.cos(sAngle) * sDist, this.y + Math.sin(sAngle) * sDist, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            } else {
+                // 通常ボム時のインク光輪オーラ（プレイヤーカラーの優しい脈動グロー）
+                ctx.save();
+                const glowRadius = currentRadius * 1.28 + Math.sin(this.pulse) * 2.5;
+                const inkGrad = ctx.createRadialGradient(this.x, this.y, currentRadius * 0.5, this.x, this.y, glowRadius);
+                inkGrad.addColorStop(0, `rgba(${pal.glowRgb}, 0.65)`);
+                inkGrad.addColorStop(0.65, `rgba(${pal.glowRgb}, 0.22)`);
+                inkGrad.addColorStop(1, `rgba(${pal.glowRgb}, 0)`);
+                ctx.fillStyle = inkGrad;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
             
-            // 黒いフチ（アウトライン）を追加して同化を防ぐ
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            // 外枠フチ（通常時は黒半透明、ファイヤーボム時はプレイヤーカラーのダークフチ）
+            ctx.fillStyle = this.isFireBomb ? pal.dark : 'rgba(0, 0, 0, 0.6)';
             ctx.beginPath();
             ctx.arc(this.x, this.y, currentRadius + (TILE_SIZE * 0.06), 0, Math.PI * 2);
             ctx.fill();
 
-            // ボム本体の色
-            ctx.fillStyle = this.color;
+            // ボム本体の色（ファイヤーボムは各プレイヤーカラーの美麗な炎グラデーション球体！）
+            if (this.isFireBomb) {
+                const bGrad = ctx.createRadialGradient(
+                    this.x - currentRadius * 0.32, 
+                    this.y - currentRadius * 0.32, 
+                    1.5, 
+                    this.x, 
+                    this.y, 
+                    currentRadius
+                );
+                bGrad.addColorStop(0, pal.highlight);
+                bGrad.addColorStop(0.3, pal.core);
+                bGrad.addColorStop(0.75, pal.main);
+                bGrad.addColorStop(1, pal.shadow);
+                ctx.fillStyle = bGrad;
+            } else {
+                ctx.fillStyle = this.color;
+            }
             ctx.beginPath();
             ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
             ctx.fill();
             
-            // ハイライト（光沢）を明るく
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            // ハイライト（光沢）
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
             ctx.beginPath();
-            ctx.arc(this.x - currentRadius*0.3, this.y - currentRadius*0.3, currentRadius*0.3, 0, Math.PI*2);
+            ctx.arc(this.x - currentRadius*0.3, this.y - currentRadius*0.3, currentRadius*0.28, 0, Math.PI*2);
             ctx.fill();
+
+            // 強化ファイヤーボムの中央「🔥」マーク（プレイヤーのダーク色で縁取ってくっきり強調）
+            if (this.isFireBomb) {
+                ctx.save();
+                ctx.font = `${currentRadius * 1.15}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = pal.dark;
+                ctx.shadowBlur = 4;
+                ctx.fillText('🔥', this.x, this.y + 1);
+                ctx.restore();
+            }
         }
     }
 
     class Explosion {
-        constructor(gridX, gridY, owner) {
+        constructor(gridX, gridY, owner, isFire = false) {
             this.gridX = gridX;
             this.gridY = gridY;
             this.owner = owner;
-            this.timer = 0.5; 
-            this.maxTimer = 0.5;
+            this.isFire = isFire;
+            this.timer = isFire ? 0.55 : 0.5; 
+            this.maxTimer = this.timer;
             
             if (paintGrid[gridY] && paintGrid[gridY][gridX] !== undefined) {
                 paintGrid[gridY][gridX] = owner;
@@ -1809,6 +2634,14 @@
             ctx.beginPath();
             ctx.arc(x + TILE_SIZE/2, y + TILE_SIZE/2, TILE_SIZE * 0.45 * (1 + (1-alpha)), 0, Math.PI * 2);
             ctx.fill();
+
+            // 火力強化ボムの爆発には内側に白黄の強烈な火炎コアを追加！
+            if (this.isFire) {
+                ctx.fillStyle = `rgba(254, 240, 138, ${alpha * 0.9})`;
+                ctx.beginPath();
+                ctx.arc(x + TILE_SIZE/2, y + TILE_SIZE/2, TILE_SIZE * 0.28 * (1 + (1-alpha)*0.5), 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
     }
 
@@ -1839,34 +2672,49 @@
             
             this.startDirIndex = startDirIndex;
             this.dirIndex = startDirIndex; // 初期方向
-            this.isMoving = true;
+            this.isMoving = false; // デフォルトは停止（その場で回転待機）
+            this.rotateTimer = 0; // その場回転タイマー
+            this.rotateInterval = isPlayer ? playerRotateInterval : 0.5; // 回転間隔
             this.autoBombTimer = autoBombInterval; // オートボムのタイマー初期値
             
             this.animationTime = 0; // アニメーション用のタイマー
             this.slot = null;
             this.scorePercent = 0;
-        }
 
-        handleInput(action) {
-            if (this.respawnTimer > 0) return;
+            this.damageTimer = 0; // 被弾・ダメージ演出タイマー
+            this.damageSoundTimer = 0; // スリップダメージ音のインターバル
+            this.damageParticleTimer = 0; // スリップ飛沫のインターバル
+            this.lastHp = this.maxHp;
 
-            if (action === 'tap') {
-                this.dirIndex = (this.dirIndex + 1) % 4; // 時計回りに90度右折
-                playSound('turn');
-            } else if (action === 'hold') {
-                // オートボムがオンの時は長押しでボムを置けない
-                if (!isAutoBomb) {
-                    this.placeBomb();
-                }
-            }
+            this.fireUpFlashTimer = 0; // 火力アップ獲得時の発光フラッシュ
+            this.fireParticleTimer = 0; // 火炎オーラの火の粉インターバル
         }
 
         update(dt) {
             this.animationTime += dt;
+            if (this.damageTimer > 0) {
+                this.damageTimer = Math.max(0, this.damageTimer - dt);
+            }
+            if (this.fireUpFlashTimer > 0) {
+                this.fireUpFlashTimer = Math.max(0, this.fireUpFlashTimer - dt);
+            }
+
+            // 火力強化中（射程3以上）なら足元から時折火の粉が舞い上がる（プレイヤーカラー）
+            if (this.bombRange > 2 && this.respawnTimer <= 0) {
+                this.fireParticleTimer = (this.fireParticleTimer || 0) + dt;
+                if (this.fireParticleTimer >= 0.12) {
+                    this.fireParticleTimer = 0;
+                    const pal = getPlayerFirePalette(this.colorId);
+                    damageParticles.push(new DamageParticle(this.x + (Math.random() - 0.5) * 16, this.y + 6, pal.highlight, 'spark'));
+                }
+            }
             
             if (this.respawnTimer > 0) {
                 this.respawnTimer -= dt;
-                if (this.respawnTimer <= 0) this.hp = this.maxHp; 
+                if (this.respawnTimer <= 0) {
+                    this.hp = this.maxHp;
+                    this.lastHp = this.maxHp;
+                }
                 return; 
             }
 
@@ -1876,6 +2724,7 @@
             const speedMultiplier = this.isHuman ? playerSpeedMultiplier : 1.0;
             let currentSpeed = TILE_SIZE * this.baseSpeedMultiplier * speedMultiplier; 
             let killerColorId = null;
+            let hitByBomb = false;
             
             if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT) {
                 const currentTileColor = paintGrid[gy][gx];
@@ -1885,6 +2734,25 @@
                     if (this.hp > this.maxHp) this.hp = this.maxHp;
                 } else if (currentTileColor !== 0 && currentTileColor !== this.colorId) {
                     this.hp -= 30 * dt; // 敵陣（自分の色でも未塗りでもないマス）でダメージ
+                    this.damageTimer = 0.18; // ダメージ演出タイマー
+
+                    // スリップダメージ飛沫エフェクト
+                    this.damageParticleTimer = (this.damageParticleTimer || 0) + dt;
+                    if (this.damageParticleTimer >= 0.08) {
+                        this.damageParticleTimer = 0;
+                        createSlipDamageEffect(this.x, this.y, currentTileColor, this.color);
+                    }
+
+                    // スリップダメージ音＆ビネット
+                    this.damageSoundTimer = (this.damageSoundTimer || 0) + dt;
+                    if (this.damageSoundTimer >= 0.22) {
+                        this.damageSoundTimer = 0;
+                        if (this.isHuman) {
+                            playSound('damage_slip');
+                            triggerDamageVignette(false);
+                        }
+                    }
+
                     if (this.hp <= 0) {
                         killerColorId = currentTileColor; // 相手のエリアダメージでリスポーン
                     }
@@ -1896,6 +2764,7 @@
                 if (exp.owner !== this.colorId && exp.gridX === gx && exp.gridY === gy) {
                     this.hp = 0; 
                     killerColorId = exp.owner; // 爆弾を当てられてリスポーン
+                    hitByBomb = true;
                     break;
                 }
             }
@@ -1904,8 +2773,28 @@
                 this.hp = 0;
                 const deathX = this.x;
                 const deathY = this.y;
+
+                // 大ダメージ・撃破エフェクト発生！
+                createHeavyDamageEffect(deathX, deathY, this.color, killerColorId);
+                triggerScreenShake(hitByBomb ? 16 : 9, 0.35);
+
+                if (this.slot) {
+                    triggerPanelDamageShake(this.slot);
+                }
+
+                if (this.isHuman) {
+                    triggerDamageVignette(true);
+                }
+
+                if (hitByBomb) {
+                    playSound('damage_heavy');
+                    floatingTexts.push(new FloatingText(deathX, deathY - 20, '💥 BOMBED!!', '#ef4444'));
+                } else {
+                    playSound('hit');
+                    floatingTexts.push(new FloatingText(deathX, deathY - 20, '💀 DOWN!', '#ef4444'));
+                }
+
                 this.die(killerColorId, deathX, deathY);
-                playSound('hit');
                 return;
             }
 
@@ -1920,10 +2809,34 @@
 
             // アイテム取得判定
             for (let i = items.length - 1; i >= 0; i--) {
-                if (items[i].gridX === gx && items[i].gridY === gy) {
+                const item = items[i];
+                if (item.gridX === gx && item.gridY === gy) {
                     items.splice(i, 1);
-                    if (this.bombs < 8) this.bombs++; 
-                    playSound('item_get');
+                    if (item.type === 'fire') {
+                        // 爆弾威力（射程）アップ！最大5まで
+                        if (this.bombRange < 5) {
+                            this.bombRange++;
+                        }
+                        this.fireUpFlashTimer = 0.8;
+                        playSound('powerup');
+                        createFireUpBurstEffect(this.x, this.y, this.color, this.colorId);
+                        if (this.slot) {
+                            triggerPanelFireUp(this.slot);
+                        }
+
+                        // 目立つ巨大2段フローティングテキスト（プレイヤーカラー対応）
+                        const pal = getPlayerFirePalette(this.colorId);
+                        const boostText = this.bombRange >= 5 
+                            ? `🔥 MAX火力!! 射程5マス!! 🔥` 
+                            : `🔥 火力UP!! 射程${this.bombRange}マス! 🔥`;
+                        floatingTexts.push(new FloatingText(this.x, this.y - 28, boostText, pal.highlight, 30, 1.8));
+                        floatingTexts.push(new FloatingText(this.x, this.y - 6, `💥 爆発範囲が広がった! (+1マス)`, '#ffffff', 18, 1.5));
+                    } else {
+                        // 爆弾個数アップ
+                        if (this.bombs < 8) this.bombs++; 
+                        playSound('item_get');
+                        floatingTexts.push(new FloatingText(this.x, this.y - 20, '+1 💣', '#fbbf24', 24, 1.2));
+                    }
                 }
             }
 
@@ -1931,8 +2844,29 @@
             let dy = 0;
 
             if (this.isHuman) {
-                dx = DIRS[this.dirIndex].dx;
-                dy = DIRS[this.dirIndex].dy;
+                const ks = this.slot ? keyStates[this.slot] : null;
+                const isKeyDown = ks && ks.isDown;
+                // キーを押してから80ms以上経過したら前進開始（80ms以内の短押しボム時はその場でボム設置）
+                const isPressingToMove = isKeyDown && (Date.now() - ks.downTime > 80);
+
+                if (!isPressingToMove) {
+                    // キーを離している（または短押し待機中）：停止し、0.5秒ごとに時計回りに90度回転
+                    this.isMoving = false;
+                    this.rotateTimer += dt;
+                    const rInterval = this.isHuman ? playerRotateInterval : this.rotateInterval;
+                    if (this.rotateTimer >= rInterval) {
+                        this.rotateTimer -= rInterval;
+                        this.dirIndex = (this.dirIndex + 1) % 4; // 時計回りに90度回転
+                        playSound('turn');
+                    }
+                    dx = 0;
+                    dy = 0;
+                } else {
+                    // キーを押し続けている：向いている方向へ前進
+                    this.isMoving = true;
+                    dx = DIRS[this.dirIndex].dx;
+                    dy = DIRS[this.dirIndex].dy;
+                }
             } else {
                 // CPU Logic
                 this.moveTimer -= dt;
@@ -1974,14 +2908,11 @@
             }
 
             const moveAmt = currentSpeed * dt;
-            let movedX = false;
-            let movedY = false;
 
             if (dx !== 0) {
                 const newX = this.x + dx * moveAmt;
                 if (!this.checkCollision(newX, this.y)) {
                     this.x = newX;
-                    movedX = true;
                 } else {
                     // 正面が壁で前進できない時のみ、角での立ち往生を防ぐ最小限のスライド補正
                     const targetY = gy * TILE_SIZE + TILE_SIZE / 2;
@@ -1998,7 +2929,6 @@
                 const newY = this.y + dy * moveAmt;
                 if (!this.checkCollision(this.x, newY)) {
                     this.y = newY;
-                    movedY = true;
                 } else {
                     // 正面が壁で前進できない時のみ、角での立ち往生を防ぐ最小限のスライド補正
                     const targetX = gx * TILE_SIZE + TILE_SIZE / 2;
@@ -2015,9 +2945,11 @@
 
         die(killerColorId = null, deathX = this.x, deathY = this.y) {
             this.respawnTimer = 3; 
+            this.damageTimer = 0; // ダメージ演出タイマーをリセット
             this.x = this.spawnGridX * TILE_SIZE + TILE_SIZE / 2;
             this.y = this.spawnGridY * TILE_SIZE + TILE_SIZE / 2;
-            this.isMoving = true; // 復活時に初期化
+            this.isMoving = false; // 復活時も初期状態（停止・その場回転待機）
+            this.rotateTimer = 0; // 回転タイマーリセット
             this.dirIndex = this.startDirIndex; // 復活時も初期方向に向かう
             this.autoBombTimer = autoBombInterval; // 復活時にオートボムタイマーもリセット
 
@@ -2072,24 +3004,32 @@
                 ctx.globalAlpha = 0.5; 
             }
 
-            // 次に曲がる方向を示すインジケーター（半透明の矢印）
+            // ダメージ中の身震い・振動（ジッター）オフセット
+            let drawX = this.x;
+            let drawY = this.y;
+            if (this.damageTimer > 0) {
+                const jitterAmt = TILE_SIZE * 0.07;
+                drawX += (Math.random() * 2 - 1) * jitterAmt;
+                drawY += (Math.random() * 2 - 1) * jitterAmt;
+            }
+
+            // 前進する方向を示す進行ガイドインジケーター（半透明の矢印）
             // 人間プレイヤーかつ生存時かつ設定がONの場合のみ描画
             if (this.isHuman && this.respawnTimer <= 0 && isGuideArrow) {
-                const nextDirIndex = (this.dirIndex + 1) % 4; // 時計回りに90度
-                const nextDirX = DIRS[nextDirIndex].dx;
-                const nextDirY = DIRS[nextDirIndex].dy;
+                const curDirX = DIRS[this.dirIndex].dx;
+                const curDirY = DIRS[this.dirIndex].dy;
                 
-                // キャラクターから少し離れた位置に矢印を配置
+                // キャラクターの前方に矢印を配置
                 const distance = TILE_SIZE * 0.7;
-                const arrowX = this.x + nextDirX * distance;
-                const arrowY = this.y + nextDirY * distance;
+                const arrowX = drawX + curDirX * distance;
+                const arrowY = drawY + curDirY * distance;
                 
                 // フワフワと前後に揺れるアニメーション
                 const floatAmount = Math.sin(this.animationTime * 8) * (TILE_SIZE * 0.08);
-                const animArrowX = arrowX + nextDirX * floatAmount;
-                const animArrowY = arrowY + nextDirY * floatAmount;
+                const animArrowX = arrowX + curDirX * floatAmount;
+                const animArrowY = arrowY + curDirY * floatAmount;
 
-                const angle = Math.atan2(nextDirY, nextDirX);
+                const angle = Math.atan2(curDirY, curDirX);
                 const size = TILE_SIZE * 0.2;
                 
                 ctx.beginPath();
@@ -2110,13 +3050,58 @@
                 ctx.fill();
             }
 
-            ctx.fillStyle = this.color;
+            // 火力強化オーラ（射程3以上でメラメラ燃え上がる火炎オーラ：プレイヤーカラー）
+            if (this.bombRange > 2 && this.respawnTimer <= 0) {
+                ctx.save();
+                const boost = this.bombRange - 2; // 1〜3
+                const auraRadius = this.radius * (1.25 + boost * 0.15);
+                const pulse = Math.sin(this.animationTime * (8 + boost * 2)) * 3;
+                const pal = getPlayerFirePalette(this.colorId);
+                
+                // 放射状の炎グラデーション（プレイヤーカラーの炎オーラ）
+                const auraGrad = ctx.createRadialGradient(drawX, drawY, this.radius * 0.5, drawX, drawY, auraRadius + pulse);
+                auraGrad.addColorStop(0, `rgba(${pal.glowRgb}, 0.85)`);
+                auraGrad.addColorStop(0.5, `rgba(${pal.glowRgb}, 0.45)`);
+                auraGrad.addColorStop(1, `rgba(${pal.glowRgb}, 0)`);
+                
+                ctx.fillStyle = auraGrad;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, auraRadius + pulse, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 炎の揺らめく舌（プレイヤーカラーの火炎の粒）
+                const flameCount = 4 + boost * 2;
+                ctx.fillStyle = pal.highlight;
+                for (let f = 0; f < flameCount; f++) {
+                    const fAngle = (f / flameCount) * Math.PI * 2 + this.animationTime * 4;
+                    const fDist = this.radius * (1.1 + Math.sin(this.animationTime * 10 + f * 1.5) * 0.25);
+                    const fx = drawX + Math.cos(fAngle) * fDist;
+                    const fy = drawY + Math.sin(fAngle) * fDist;
+                    ctx.beginPath();
+                    ctx.arc(fx, fy, 3.5 + boost * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            // キャラクター本体の描画色（パワーアップ獲得時は黄金フラッシュ、ダメージ中はプレイヤーカラー⇄白の点滅）
+            let charColor = this.color;
+            if (this.damageTimer > 0) {
+                const flash = Math.floor(this.animationTime * 30) % 2 === 0;
+                // 赤くならず、プレイヤーカラーと白で点滅！
+                charColor = flash ? '#ffffff' : this.color;
+            } else if (this.fireUpFlashTimer > 0) {
+                const flash = Math.floor(this.animationTime * 25) % 2 === 0;
+                charColor = flash ? '#facc15' : '#f97316';
+            }
+
+            ctx.fillStyle = charColor;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.arc(drawX, drawY, this.radius, 0, Math.PI * 2);
             ctx.fill();
             
             ctx.lineWidth = Math.max(2, TILE_SIZE * 0.05);
-            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.strokeStyle = this.damageTimer > 0 ? '#ffffff' : 'rgba(0,0,0,0.4)';
             ctx.stroke();
 
             // 進行方向の決定 (CPUの向きも計算)
@@ -2131,86 +3116,153 @@
             const faceDirX = DIRS[currentDirIndex].dx;
             const faceDirY = DIRS[currentDirIndex].dy;
             
-            // 顔の中心を進行方向に寄せる
-            const faceOffsetX = faceDirX * (TILE_SIZE * 0.12);
-            const faceOffsetY = faceDirY * (TILE_SIZE * 0.12);
-            
-            // 進行方向に対して垂直なベクトル（目の間隔用）
-            const perpX = faceDirY;
-            const perpY = -faceDirX;
-            
-            const eyeSpacing = TILE_SIZE * 0.11;
+            // 進行方向に応じた自然な目の位置・サイズ計算
+            // 進行方向に応じた自然な目の位置・サイズ計算
+            // （添付画像通り: 右向き・左向き時は目が上下に並び、瞳が進行方向を向く）
+            let leftEyeX, leftEyeY;
+            let rightEyeX, rightEyeY;
+            let pupilOffsetX = 0, pupilOffsetY = 0;
+            let mouthX = drawX, mouthY = drawY + TILE_SIZE * 0.16;
+
             const eyeRadius = TILE_SIZE * 0.08;
-            
-            // 左右の目の位置を計算
-            const leftEyeX = this.x + faceOffsetX + perpX * eyeSpacing;
-            const leftEyeY = this.y + faceOffsetY + perpY * eyeSpacing;
-            const rightEyeX = this.x + faceOffsetX - perpX * eyeSpacing;
-            const rightEyeY = this.y + faceOffsetY - perpY * eyeSpacing;
-
-            ctx.fillStyle = 'white';
-            ctx.beginPath();
-            ctx.arc(leftEyeX, leftEyeY, eyeRadius, 0, Math.PI*2);
-            ctx.arc(rightEyeX, rightEyeY, eyeRadius, 0, Math.PI*2);
-            ctx.fill();
-            
             const pupilRadius = TILE_SIZE * 0.04;
-            ctx.fillStyle = '#0f172a';
-            // 黒目をさらに進行方向へ少し寄せる
-            const pupilOffsetX = faceDirX * (TILE_SIZE * 0.03);
-            const pupilOffsetY = faceDirY * (TILE_SIZE * 0.03);
-            
-            ctx.beginPath();
-            ctx.arc(leftEyeX + pupilOffsetX, leftEyeY + pupilOffsetY, pupilRadius, 0, Math.PI*2);
-            ctx.arc(rightEyeX + pupilOffsetX, rightEyeY + pupilOffsetY, pupilRadius, 0, Math.PI*2);
-            ctx.fill();
 
-            // 進行方向を示す小さな矢印インジケーター（頭の縁）
-            if (this.isMoving || !this.isHuman) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            if (currentDirIndex === 0) {
+                // 上向き（奥を見る）: 両目が上寄りに水平配置、瞳が上を向く
+                leftEyeX = drawX - TILE_SIZE * 0.12;
+                rightEyeX = drawX + TILE_SIZE * 0.12;
+                leftEyeY = drawY - TILE_SIZE * 0.08;
+                rightEyeY = drawY - TILE_SIZE * 0.08;
+                pupilOffsetY = -TILE_SIZE * 0.038;
+                mouthX = drawX;
+                mouthY = drawY - TILE_SIZE * 0.02;
+            } else if (currentDirIndex === 1) {
+                // 右向き（添付画像2通り: 目が上下に並び、瞳が右を向く）
+                leftEyeX = drawX + TILE_SIZE * 0.08;
+                rightEyeX = drawX + TILE_SIZE * 0.08;
+                leftEyeY = drawY - TILE_SIZE * 0.12;
+                rightEyeY = drawY + TILE_SIZE * 0.12;
+                pupilOffsetX = TILE_SIZE * 0.038;
+                mouthX = drawX + TILE_SIZE * 0.14;
+                mouthY = drawY;
+            } else if (currentDirIndex === 2) {
+                // 下向き（手前を見る正面顔）: 両目が下寄りに水平配置、瞳が手前を向く
+                leftEyeX = drawX - TILE_SIZE * 0.12;
+                rightEyeX = drawX + TILE_SIZE * 0.12;
+                leftEyeY = drawY + TILE_SIZE * 0.08;
+                rightEyeY = drawY + TILE_SIZE * 0.08;
+                pupilOffsetY = TILE_SIZE * 0.038;
+                mouthX = drawX;
+                mouthY = drawY + TILE_SIZE * 0.16;
+            } else {
+                // 左向き（添付画像1通り: 目が上下に並び、瞳が左を向く）
+                leftEyeX = drawX - TILE_SIZE * 0.08;
+                rightEyeX = drawX - TILE_SIZE * 0.08;
+                leftEyeY = drawY - TILE_SIZE * 0.12;
+                rightEyeY = drawY + TILE_SIZE * 0.12;
+                pupilOffsetX = -TILE_SIZE * 0.038;
+                mouthX = drawX - TILE_SIZE * 0.14;
+                mouthY = drawY;
+            }
+
+            if (this.damageTimer > 0) {
+                // ダメージ中のやられ目（添付画像通り: 上下向き時は「＞ ＜」、左右向き時は「v ^」）
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = Math.max(3, TILE_SIZE * 0.05);
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                const eyeSize = TILE_SIZE * 0.065;
+                const eyeSpacing = TILE_SIZE * 0.09;
+                const eyeOffsetBackX = -faceDirX * (TILE_SIZE * 0.05);
+                const eyeOffsetBackY = -faceDirY * (TILE_SIZE * 0.05);
+
+                if (currentDirIndex === 0 || currentDirIndex === 2) {
+                    // 縦向き（上向き・下向き）: 左右の目がそれぞれ「＞」と「＜」
+                    const dEyeY = drawY + eyeOffsetBackY;
+                    const leftX = drawX - eyeSpacing;
+                    const rightX = drawX + eyeSpacing;
+
+                    // 左目: ＞
+                    ctx.beginPath();
+                    ctx.moveTo(leftX - eyeSize, dEyeY - eyeSize);
+                    ctx.lineTo(leftX + eyeSize * 0.5, dEyeY);
+                    ctx.lineTo(leftX - eyeSize, dEyeY + eyeSize);
+                    ctx.stroke();
+
+                    // 右目: ＜
+                    ctx.beginPath();
+                    ctx.moveTo(rightX + eyeSize, dEyeY - eyeSize);
+                    ctx.lineTo(rightX - eyeSize * 0.5, dEyeY);
+                    ctx.lineTo(rightX + eyeSize, dEyeY + eyeSize);
+                    ctx.stroke();
+                } else {
+                    // 横向き（右向き・左向き）: 上下の目がそれぞれ「v」と「^」
+                    const dEyeX = drawX + eyeOffsetBackX;
+                    const topY = drawY - eyeSpacing;
+                    const bottomY = drawY + eyeSpacing;
+
+                    // 上の目: v
+                    ctx.beginPath();
+                    ctx.moveTo(dEyeX - eyeSize, topY - eyeSize * 0.5);
+                    ctx.lineTo(dEyeX, topY + eyeSize);
+                    ctx.lineTo(dEyeX + eyeSize, topY - eyeSize * 0.5);
+                    ctx.stroke();
+
+                    // 下の目: ^
+                    ctx.beginPath();
+                    ctx.moveTo(dEyeX - eyeSize, bottomY + eyeSize * 0.5);
+                    ctx.lineTo(dEyeX, bottomY - eyeSize);
+                    ctx.lineTo(dEyeX + eyeSize, bottomY + eyeSize * 0.5);
+                    ctx.stroke();
+                }
+            } else {
+                // 通常の目（白目）
+                ctx.fillStyle = 'white';
                 ctx.beginPath();
-                const arrowBaseX = this.x + faceDirX * (TILE_SIZE * 0.28);
-                const arrowBaseY = this.y + faceDirY * (TILE_SIZE * 0.28);
-                const angle = Math.atan2(faceDirY, faceDirX);
-                const size = TILE_SIZE * 0.12;
+                ctx.arc(leftEyeX, leftEyeY, eyeRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(rightEyeX, rightEyeY, eyeRadius, 0, Math.PI * 2);
+                ctx.fill();
                 
-                ctx.moveTo(arrowBaseX + Math.cos(angle) * size, arrowBaseY + Math.sin(angle) * size);
-                ctx.lineTo(arrowBaseX + Math.cos(angle + Math.PI * 0.75) * size, arrowBaseY + Math.sin(angle + Math.PI * 0.75) * size);
-                ctx.lineTo(arrowBaseX + Math.cos(angle - Math.PI * 0.75) * size, arrowBaseY + Math.sin(angle - Math.PI * 0.75) * size);
+                // 黒目（進行方向へ目線）
+                ctx.fillStyle = '#0f172a';
+                ctx.beginPath();
+                ctx.arc(leftEyeX + pupilOffsetX, leftEyeY + pupilOffsetY, pupilRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(rightEyeX + pupilOffsetX, rightEyeY + pupilOffsetY, pupilRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // キラッと光る瞳のハイライト
+                ctx.fillStyle = 'white';
+                const hlR = pupilRadius * 0.35;
+                ctx.beginPath();
+                ctx.arc(leftEyeX + pupilOffsetX - hlR * 0.7, leftEyeY + pupilOffsetY - hlR * 0.7, hlR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(rightEyeX + pupilOffsetX - hlR * 0.7, rightEyeY + pupilOffsetY - hlR * 0.7, hlR, 0, Math.PI * 2);
                 ctx.fill();
             }
 
-            // 「長押しチャージゲージ」の描画（ボム残数がある時、または爆弾無限モードの時。オートボム時は手動設置不可のため非表示）
-            const hasBombs = (isInfiniteBomb && this.isHuman) || this.bombs > 0;
-            const ks = this.slot ? keyStates[this.slot] : null;
-            if (this.isHuman && !isAutoBomb && ks && ks.isDown && !ks.holdTriggered && this.respawnTimer <= 0 && hasBombs) {
-                const elapsed = Date.now() - ks.downTime;
-                const progress = Math.min(elapsed / HOLD_THRESHOLD, 1.0);
-                
-                const gaugeRadius = this.radius + (TILE_SIZE * 0.2);
-                const gaugeWidth = Math.max(4, TILE_SIZE * 0.1);
-
-                // ゲージの背景（黒い半透明）を追加して、同色の床でも見やすくする
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, gaugeRadius, -Math.PI / 2, Math.PI * 1.5);
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)'; 
-                ctx.lineWidth = gaugeWidth + 2;
-                ctx.stroke();
-
-                // ゲージ本体（自分の色）
-                ctx.beginPath();
-                // -90度(真上)からスタートして時計回りに描画
-                ctx.arc(this.x, this.y, gaugeRadius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
-                ctx.strokeStyle = this.color; 
-                ctx.lineWidth = gaugeWidth;
-                ctx.lineCap = 'round';
-                ctx.stroke();
-            }
+            // 進行方向を示す小さな矢印インジケーター（頭の縁）
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+            ctx.beginPath();
+            const arrowBaseX = drawX + faceDirX * (this.radius * 0.82);
+            const arrowBaseY = drawY + faceDirY * (this.radius * 0.82);
+            const angle = Math.atan2(faceDirY, faceDirX);
+            const size = TILE_SIZE * 0.10;
+            
+            ctx.moveTo(arrowBaseX + Math.cos(angle) * size, arrowBaseY + Math.sin(angle) * size);
+            ctx.lineTo(arrowBaseX + Math.cos(angle + Math.PI * 0.75) * size, arrowBaseY + Math.sin(angle + Math.PI * 0.75) * size);
+            ctx.lineTo(arrowBaseX + Math.cos(angle - Math.PI * 0.75) * size, arrowBaseY + Math.sin(angle - Math.PI * 0.75) * size);
+            ctx.fill();
 
             // オートボムON時のボム設置カウントダウンバッジ（頭上表示）
             if (this.isHuman && isAutoBomb && this.respawnTimer <= 0) {
                 const hasBombs = (isInfiniteBomb && this.isHuman) || this.bombs > 0;
-                const badgeY = this.y - this.radius - (TILE_SIZE * 0.28);
+                const badgeY = drawY - this.radius - (TILE_SIZE * 0.28);
                 
                 ctx.save();
                 ctx.font = '900 16px "Noto Sans JP", sans-serif';
@@ -2230,16 +3282,50 @@
                 ctx.lineWidth = isNearDrop ? 2.5 : 1.5;
                 ctx.beginPath();
                 if (ctx.roundRect) {
-                    ctx.roundRect(this.x - pillW / 2, badgeY - pillH / 2, pillW, pillH, 12);
+                    ctx.roundRect(drawX - pillW / 2, badgeY - pillH / 2, pillW, pillH, 12);
                 } else {
-                    ctx.rect(this.x - pillW / 2, badgeY - pillH / 2, pillW, pillH);
+                    ctx.rect(drawX - pillW / 2, badgeY - pillH / 2, pillW, pillH);
                 }
                 ctx.fill();
                 ctx.stroke();
 
                 // テキスト描画
                 ctx.fillStyle = !hasBombs ? '#94a3b8' : (isNearDrop ? '#fde047' : '#ffffff');
-                ctx.fillText(label, this.x, badgeY);
+                ctx.fillText(label, drawX, badgeY);
+                ctx.restore();
+            }
+
+            // 火力強化バッジ（生存時かつ射程3以上の場合に頭上に常時表示）
+            if (this.bombRange > 2 && this.respawnTimer <= 0) {
+                ctx.save();
+                const badgeText = this.bombRange >= 5 ? '🔥MAX' : `🔥射程${this.bombRange}`;
+                ctx.font = '900 13px "Noto Sans JP", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const tw = ctx.measureText(badgeText).width;
+                const pillW = tw + 14;
+                const pillH = 20;
+
+                // オートボムバッジと重ならないよう配置（オートボム表示中なら右上にオフセット、それ以外は頭上中央）
+                const hasAutoBombBadge = this.isHuman && isAutoBomb;
+                const badgeX = hasAutoBombBadge ? drawX + this.radius + 14 : drawX;
+                const badgeY = hasAutoBombBadge ? drawY - this.radius : drawY - this.radius - (TILE_SIZE * 0.28);
+
+                const pal = getPlayerFirePalette(this.colorId);
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+                ctx.strokeStyle = this.bombRange >= 5 ? '#facc15' : pal.main;
+                ctx.lineWidth = 1.8;
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(badgeX - pillW / 2, badgeY - pillH / 2, pillW, pillH, 10);
+                } else {
+                    ctx.rect(badgeX - pillW / 2, badgeY - pillH / 2, pillW, pillH);
+                }
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = this.bombRange >= 5 ? '#fde047' : pal.highlight;
+                ctx.fillText(badgeText, badgeX, badgeY);
                 ctx.restore();
             }
 
@@ -2270,6 +3356,14 @@
                 
                 bombs.push(new Bomb(centerX, centerY, this.colorId, this.bombRange));
                 playSound('bomb_drop');
+
+                // プレイヤーのボム設置成功演出（ポップアップテキスト＆パネル発光）
+                if (this.isHuman) {
+                    floatingTexts.push(new FloatingText(this.x, this.y - 25, '💣 BOMB!', '#fde047'));
+                    if (this.slot) {
+                        triggerPanelBombFlash(this.slot);
+                    }
+                }
             }
         }
     }
@@ -2321,8 +3415,8 @@
         }
     }
 
-    function spawnItem() {
-        if (isInfiniteBomb) return;
+    function spawnItem(forceType = null) {
+        if (isInfiniteBomb) return null;
         let emptySpots = [];
         for (let y = 1; y < GRID_HEIGHT - 1; y++) {
             for (let x = 1; x < GRID_WIDTH - 1; x++) {
@@ -2338,23 +3432,129 @@
         }
         if (emptySpots.length > 0) {
             const spot = emptySpots[Math.floor(Math.random() * emptySpots.length)];
-            items.push(new ItemBombUp(spot.x, spot.y));
+            // forceType指定、または残り30秒以降なら40%の確率で火力アップ
+            const isFire = (forceType === 'fire') || (!forceType && gameTime <= 30.0 && Math.random() < 0.4);
+            const newItem = isFire ? new ItemFireUp(spot.x, spot.y) : new ItemBombUp(spot.x, spot.y);
+            items.push(newItem);
+            return newItem;
+        }
+        return null;
+    }
+
+    function spawnFireItem() {
+        return spawnItem('fire');
+    }
+
+    function triggerPanelBombFlash(slot) {
+        const panel = document.getElementById(`panel-p${slot}`);
+        if (!panel) return;
+        panel.classList.add('ring-4', 'ring-amber-400', 'shadow-[0_0_30px_rgba(251,191,36,0.9)]');
+        setTimeout(() => {
+            panel.classList.remove('ring-4', 'ring-amber-400', 'shadow-[0_0_30px_rgba(251,191,36,0.9)]');
+        }, 250);
+    }
+
+    function renderSlotGuide(slot, char, cfg) {
+        const guideElem = document.getElementById(`guide-p${slot}`);
+        if (!guideElem) return;
+
+        if (!char || !char.isHuman) {
+            guideElem.className = "bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1";
+            guideElem.innerHTML = `<div class="w-full text-center text-slate-400 font-bold py-0.5">🤖 CPU 自動操作中</div>`;
+            return;
+        }
+
+        const k = cfg ? cfg.keyDisplay.charAt(0) : (slot === 1 ? 'Q' : '');
+        const pColor = PLAYER_COLORS[cfg ? cfg.colorId : 1];
+        const keyColorClass = pColor ? pColor.textClass : 'text-emerald-400';
+        const keyBorderClass = slot === 1 ? 'border-emerald-400/50' : (slot === 2 ? 'border-red-400/50' : (slot === 3 ? 'border-blue-400/50' : 'border-amber-400/50'));
+        const hasBombs = (isInfiniteBomb && char.isHuman) || char.bombs > 0;
+
+        if (isAutoBomb) {
+            guideElem.className = "bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1";
+            const countDisplay = hasBombs 
+                ? `<span class="text-white font-black text-sm">${Math.max(0, char.autoBombTimer).toFixed(1)}秒</span>`
+                : `<span class="text-rose-400 font-bold text-xs">弾切れ</span>`;
+            const stateText = char.isMoving ? '前進中 🏃' : '回転中 🔄';
+            guideElem.innerHTML = `
+                <div class="flex items-center justify-between w-full">
+                    <div class="flex items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-slate-950 border ${keyBorderClass} ${keyColorClass} font-black text-xs shadow-sm">${k}</span>
+                        <span class="text-slate-200">押す:</span>
+                        <span class="text-emerald-400 font-black">${stateText}</span>
+                    </div>
+                    <div class="text-amber-400 font-bold text-xs">💣 ${countDisplay}</div>
+                </div>`;
+            return;
+        }
+
+        // 手動操作時
+        const bombInfo = hasBombs 
+            ? '<span class="text-amber-300 font-black text-xs">短押し: 💣ボム</span>'
+            : '<span class="text-rose-400 font-bold text-xs">💣 弾切れ</span>';
+
+        if (char.isMoving) {
+            // 前進中（キー長押し中）
+            guideElem.className = "bg-slate-800/95 rounded-2xl py-2 px-3 border-2 border-emerald-400/70 shadow-[0_0_12px_rgba(16,185,129,0.3)] text-slate-100 text-xs font-bold transition-all flex flex-col gap-1";
+            guideElem.innerHTML = `
+                <div class="flex items-center justify-between w-full">
+                    <div class="flex items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-emerald-400 text-slate-950 font-black text-xs shadow-sm">${k}</span>
+                        <span class="text-emerald-300 font-black">前進中 🏃</span>
+                    </div>
+                    <div>${bombInfo}</div>
+                </div>`;
+        } else {
+            // 回転中（キー離し中）
+            guideElem.className = "bg-slate-800/80 rounded-2xl py-2 px-3 border border-slate-700/60 text-slate-300 text-xs font-bold transition-all flex flex-col gap-1";
+            guideElem.innerHTML = `
+                <div class="flex items-center justify-between w-full">
+                    <div class="flex items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-slate-950 border ${keyBorderClass} ${keyColorClass} font-black text-xs shadow-sm">${k}</span>
+                        <span class="text-sky-300 font-black">回転中 🔄</span>
+                        <span class="text-slate-400 text-[10px] font-normal">(押して前進)</span>
+                    </div>
+                    <div>${bombInfo}</div>
+                </div>`;
+        }
+    }
+
+    // 現在のマップ塗りタイル数および各プレイヤーのスコアを集計する共通関数
+    function calculateCurrentPaintScores() {
+        let sc = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        let floors = 0;
+        if (grid && paintGrid) {
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (grid[y] && (grid[y][x] === TILE_EMPTY || grid[y][x] === TILE_FLOOR)) { 
+                        floors++;
+                        const c = paintGrid[y] ? paintGrid[y][x] : 0;
+                        if (sc[c] !== undefined) sc[c]++;
+                    }
+                }
+            }
+        }
+        totalFloorTiles = floors || 1;
+        latestScores = sc;
+        return { scores: sc, totalFloorTiles: totalFloorTiles };
+    }
+
+    // 火力・射程バッジHTML生成（通常: 射程2マス、強化: 🔥威力Lv.X (射程Xマス)、最大: 🔥MAX威力、プレイヤーカラー対応）
+    function renderBombRangeBadge(char) {
+        if (!char) return '';
+        const pal = getPlayerFirePalette(char.colorId);
+        if (char.bombRange >= 5) {
+            return `<span class="px-2.5 py-0.5 rounded-full bg-gradient-to-r ${pal.badgeGradient} text-white font-black text-xs border-2 border-yellow-300 shadow-[0_0_15px_${pal.badgeShadow}] inline-flex items-center gap-1 animate-bounce select-none shrink-0">🔥 MAX威力 (5マス)</span>`;
+        } else if (char.bombRange > 2) {
+            const boost = char.bombRange - 2;
+            return `<span class="px-2.5 py-0.5 rounded-full bg-gradient-to-r ${pal.badgeGradient} text-white font-black text-xs border ${pal.badgeBorder} shadow-[0_0_12px_${pal.badgeShadow}] inline-flex items-center gap-1 animate-pulse select-none shrink-0">🔥 威力Lv.${boost + 1} (射程${char.bombRange}マス)</span>`;
+        } else {
+            return `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-bold text-[11px] border border-slate-700/80 select-none shrink-0">射程: 2マス</span>`;
         }
     }
 
     function updateUI() {
-        let scores = { 1: 0, 2: 0, 3: 0, 4: 0 };
-        let currentFloors = 0;
-        for (let y = 0; y < GRID_HEIGHT; y++) {
-            for (let x = 0; x < GRID_WIDTH; x++) {
-                if (grid[y][x] === TILE_EMPTY || grid[y][x] === TILE_FLOOR) { 
-                    currentFloors++;
-                    const c = paintGrid[y][x];
-                    if (scores[c] !== undefined) scores[c]++;
-                }
-            }
-        }
-        totalFloorTiles = currentFloors;
+        const { scores } = calculateCurrentPaintScores();
         
         SLOT_CONFIGS.forEach(cfg => {
             const slot = cfg.slot;
@@ -2372,30 +3572,31 @@
                         const percent = Math.max(0, (char.hp / char.maxHp) * 100);
                         hpElem.style.width = percent + '%';
                     }
+                    const hpDelayElem = document.getElementById('hp-delay-p1');
+                    if (hpDelayElem) {
+                        const percent = Math.max(0, (char.hp / char.maxHp) * 100);
+                        hpDelayElem.style.width = percent + '%';
+                    }
+                    if (char.lastHp !== undefined && char.lastHp - char.hp >= 8) {
+                        triggerPanelDamageShake(1);
+                    }
+                    char.lastHp = char.hp;
                     
                     const bombsElem = document.getElementById('bombs-p1');
                     if (bombsElem) {
+                        const rangeBadge = renderBombRangeBadge(char);
+                        let bombCountHtml = '';
                         if (isInfiniteBomb) {
-                            bombsElem.innerHTML = '<span class="text-yellow-400 font-black text-3xl tracking-wider drop-shadow-md">💣 ∞</span>';
+                            bombCountHtml = '<span class="text-yellow-400 font-black text-2xl tracking-wider drop-shadow-md">💣 ∞</span>';
                         } else if (char.bombs > 0) {
-                            bombsElem.innerHTML = '💣'.repeat(char.bombs);
+                            bombCountHtml = `<span class="text-2xl">${'💣'.repeat(char.bombs)}</span>`;
                         } else {
-                            bombsElem.innerHTML = '<span class="text-slate-500 text-2xl font-bold tracking-normal">なし (0)</span>';
+                            bombCountHtml = '<span class="text-slate-500 text-base font-bold">💣 0 (弾切れ)</span>';
                         }
+                        bombsElem.innerHTML = `<div class="flex items-center gap-2">${bombCountHtml}</div>${rangeBadge}`;
                     }
 
-                    const guideElem = document.getElementById('guide-p1');
-                    if (guideElem) {
-                        if (isAutoBomb) {
-                            const hasBombs = isInfiniteBomb || char.bombs > 0;
-                            const countDisplay = hasBombs 
-                                ? `<span class="text-white font-black text-sm">${Math.max(0, char.autoBombTimer).toFixed(1)}秒</span>`
-                                : `<span class="text-rose-400 font-bold text-xs">弾切れ</span>`;
-                            guideElem.innerHTML = `<div><span class="text-emerald-400 font-black">Q 短押し:</span> 右折</div><div class="text-amber-400 font-bold">💣 ボムまで: ${countDisplay}</div>`;
-                        } else {
-                            guideElem.innerHTML = `<div><span class="text-emerald-400 font-black">Q 短押し:</span> 右折</div><div><span class="text-emerald-400 font-black">Q 長押し:</span> ボム設置</div>`;
-                        }
-                    }
+                    renderSlotGuide(1, char, cfg);
                 }
             } else {
                 const panel = document.getElementById(`panel-p${slot}`);
@@ -2416,16 +3617,28 @@
                     const percent = Math.max(0, (char.hp / char.maxHp) * 100);
                     hpElem.style.width = percent + '%';
                 }
+                const hpDelayElem = document.getElementById(`hp-delay-p${slot}`);
+                if (hpDelayElem) {
+                    const percent = Math.max(0, (char.hp / char.maxHp) * 100);
+                    hpDelayElem.style.width = percent + '%';
+                }
+                if (char.lastHp !== undefined && char.lastHp - char.hp >= 8) {
+                    triggerPanelDamageShake(slot);
+                }
+                char.lastHp = char.hp;
 
                 const bombsElem = document.getElementById(`bombs-p${slot}`);
                 if (bombsElem) {
+                    const rangeBadge = renderBombRangeBadge(char);
+                    let bombCountHtml = '';
                     if (isInfiniteBomb && char.isHuman) {
-                        bombsElem.innerHTML = '<span class="text-yellow-400 font-black text-xl tracking-wider">💣 ∞</span>';
+                        bombCountHtml = '<span class="text-yellow-400 font-black text-2xl tracking-wider drop-shadow-md">💣 ∞</span>';
                     } else if (char.bombs > 0) {
-                        bombsElem.innerHTML = '💣'.repeat(char.bombs);
+                        bombCountHtml = `<span class="text-2xl">${'💣'.repeat(char.bombs)}</span>`;
                     } else {
-                        bombsElem.innerHTML = '<span class="text-slate-500 text-xs font-bold">なし (0)</span>';
+                        bombCountHtml = '<span class="text-slate-500 text-base font-bold">💣 0 (弾切れ)</span>';
                     }
+                    bombsElem.innerHTML = `<div class="flex items-center gap-2">${bombCountHtml}</div>${rangeBadge}`;
                 }
 
                 const badgeElem = document.getElementById(`badge-p${slot}`);
@@ -2433,24 +3646,7 @@
                     badgeElem.innerText = char.isHuman ? cfg.keyDisplay : 'CPU';
                 }
 
-                const guideElem = document.getElementById(`guide-p${slot}`);
-                if (guideElem) {
-                    if (char.isHuman) {
-                        const pColor = PLAYER_COLORS[cfg.colorId];
-                        const k = cfg.keyDisplay.charAt(0);
-                        if (isAutoBomb) {
-                            const hasBombs = isInfiniteBomb || char.bombs > 0;
-                            const countDisplay = hasBombs 
-                                ? `<span class="text-white font-black text-sm">${Math.max(0, char.autoBombTimer).toFixed(1)}秒</span>`
-                                : `<span class="text-rose-400 font-bold text-xs">弾切れ</span>`;
-                            guideElem.innerHTML = `<div><span class="${pColor.textClass} font-black">${k} 短押し:</span> 右折</div><div class="text-amber-400 font-bold">💣 ボムまで: ${countDisplay}</div>`;
-                        } else {
-                            guideElem.innerHTML = `<div><span class="${pColor.textClass} font-black">${k} 短押し:</span> 右折</div><div><span class="${pColor.textClass} font-black">${k} 長押し:</span> ボム設置</div>`;
-                        }
-                    } else {
-                        guideElem.innerHTML = `<div class="w-full text-center text-slate-400 font-bold">🤖 CPU 自動操作中</div>`;
-                    }
-                }
+                renderSlotGuide(slot, char, cfg);
             }
         });
     }
@@ -2562,8 +3758,22 @@
             return;
         }
 
-        // 2. タイムアップ演出待機中（0.8秒間）
+        // 2. タイムアップ演出待機中（「そこまで！」表示＆最終マップ鑑賞時間：残存ボムや爆発を消化）
         if (isTimeUpPending) {
+            // 残存ボム・爆発・パーティクル・テキストの消化更新
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                if (bombs[i].update(dt)) bombs.splice(i, 1);
+            }
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                if (explosions[i].update(dt)) explosions.splice(i, 1);
+            }
+            for (let i = damageParticles.length - 1; i >= 0; i--) {
+                if (damageParticles[i].update(dt)) damageParticles.splice(i, 1);
+            }
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                if (floatingTexts[i].update(dt)) floatingTexts.splice(i, 1);
+            }
+
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.translate(offsetX, offsetY);
@@ -2572,7 +3782,9 @@
             items.forEach(i => i.draw());
             bombs.forEach(b => b.draw());
             explosions.forEach(e => e.draw());
+            damageParticles.forEach(p => p.draw());
             allCharacters.forEach(c => c.draw());
+            floatingTexts.forEach(ft => ft.draw());
             updateUI();
 
             requestAnimationFrame(gameLoop);
@@ -2580,24 +3792,25 @@
         }
 
         // 3. 通常ゲーム進行
-        // 各スロットの長押し判定 (1P:Q, 2P:R, 3P:U, 4P:P - 0.5秒長押しでボム設置)
-        for (let s = 1; s <= 4; s++) {
-            const ks = keyStates[s];
-            if (ks.isDown && !ks.holdTriggered) {
-                if (Date.now() - ks.downTime >= HOLD_THRESHOLD) { 
-                    ks.holdTriggered = true;
-                    // オートボムがオンの時は長押しでボムを置けないようにする
-                    if (!isAutoBomb) {
-                        const char = charactersBySlot[s];
-                        if (char && char.isHuman && char.respawnTimer <= 0) {
-                            char.handleInput('hold');
-                        }
-                    }
+        gameTime -= dt;
+
+        // 残り30秒到達時: 爆弾威力アップアイテム（🔥）の出現＆告知
+        if (gameTime <= 30.0 && !isPowerItemSpawned) {
+            isPowerItemSpawned = true;
+            if (!isInfiniteBomb) {
+                // フィールド上の空きマスに威力アップアイテムを3個一斉生成
+                for (let i = 0; i < 3; i++) {
+                    spawnFireItem();
                 }
             }
+            showCountdownDisplay('🔥 威力UP出現! 🔥', 'text-amber-400 drop-shadow-[0_0_50px_rgba(251,146,60,1)]');
+            playSound('powerup');
+            setTimeout(() => {
+                if (isGameRunning && gameTime > 3.0 && !isTimeUpPending) {
+                    hideCountdownDisplay();
+                }
+            }, 1200);
         }
-
-        gameTime -= dt;
 
         // 終了10秒前 画面赤点滅の更新
         updateDangerFlash(gameTime);
@@ -2615,12 +3828,7 @@
         if (gameTime <= 0) {
             gameTime = 0;
             document.getElementById('timer').innerText = '0';
-            isTimeUpPending = true;
-            showCountdownDisplay('TIME UP!', 'text-rose-400 drop-shadow-[0_0_60px_rgba(251,113,133,1)]');
-            playSound('finish');
-            setTimeout(() => {
-                endGame();
-            }, 800);
+            triggerTimeUp();
             requestAnimationFrame(gameLoop);
             return;
         }
@@ -2647,18 +3855,33 @@
         for (let i = floatingTexts.length - 1; i >= 0; i--) {
             if (floatingTexts[i].update(dt)) floatingTexts.splice(i, 1);
         }
+        for (let i = damageParticles.length - 1; i >= 0; i--) {
+            if (damageParticles[i].update(dt)) damageParticles.splice(i, 1);
+        }
+
+        // ダメージ赤フラッシュ（ビネット）の減衰更新
+        updateDamageVignette(dt);
 
         // CLEAR
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // TRANSLATE TO CENTER (1920x1080内の固定位置)
-        ctx.translate(offsetX, offsetY);
+        // TRANSLATE TO CENTER (1920x1080内の固定位置 + 被弾時のスクリーンシェイク)
+        let shakeX = 0;
+        let shakeY = 0;
+        if (screenShakeTimer > 0) {
+            screenShakeTimer -= dt;
+            const progress = Math.max(0, screenShakeTimer / (screenShakeDuration || 0.25));
+            shakeX = (Math.random() * 2 - 1) * screenShakeIntensity * progress;
+            shakeY = (Math.random() * 2 - 1) * screenShakeIntensity * progress;
+        }
+        ctx.translate(offsetX + shakeX, offsetY + shakeY);
 
         drawMap();
         items.forEach(i => i.draw());
         bombs.forEach(b => b.draw());
         explosions.forEach(e => e.draw());
+        damageParticles.forEach(p => p.draw()); // ダメージエフェクト描画
         
         allCharacters.forEach(c => c.draw());
         floatingTexts.forEach(ft => ft.draw());
@@ -2673,6 +3896,7 @@
         initAudio(); // 音声コンテキストの初期化＆アンロック
         stopBGM(); // カウントダウン中はBGMを停止（無音化）
 
+        clearJudgingTimers(); // 前回のジャッジ演出タイマーを完全停止
         isGamePaused = false;
         isTimeUpPending = false;
         isStartCountdownActive = true;
@@ -2680,6 +3904,30 @@
         lastStartSecond = 3;
         lastEndSecond = -1;
         isDangerAlertTriggered = false;
+        isPowerItemSpawned = false;
+        isMapOnlyView = false;
+        setFullscreenButtonLayout('normal');
+        updateJudgeUiVisibility(false);
+
+        const inGameUI = document.getElementById('in-game-ui');
+        if (inGameUI) inGameUI.classList.remove('opacity-0');
+
+        const confettiContainer = document.getElementById('confetti-container');
+        if (confettiContainer) confettiContainer.innerHTML = '';
+
+        const resultAnnounce = document.getElementById('result-announcement');
+        if (resultAnnounce) {
+            resultAnnounce.classList.add('opacity-0');
+            resultAnnounce.classList.remove('opacity-100');
+        }
+
+        for (let s = 1; s <= 4; s++) {
+            const card = document.getElementById(`judge-card-${s}`);
+            if (card) {
+                card.innerHTML = '';
+                card.classList.add('hidden');
+            }
+        }
 
         const pauseOverlay = document.getElementById('pause-overlay');
         if (pauseOverlay) pauseOverlay.classList.add('hidden');
@@ -2693,10 +3941,15 @@
         explosions = [];
         items = [];
         floatingTexts = [];
+        damageParticles = []; // ダメージパーティクル初期化
+        screenShakeTimer = 0;
+        damageVignetteTimer = 0;
+        const dOverlay = document.getElementById('damage-overlay');
+        if (dOverlay) dOverlay.style.opacity = '0';
         
         // 全キー状態をリセット
         for (let s = 1; s <= 4; s++) {
-            keyStates[s] = { isDown: false, downTime: 0, holdTriggered: false };
+            keyStates[s] = { isDown: false, downTime: 0 };
         }
 
         // 初期アイテムを再度スポーン（爆弾無限モード時は出現させない）
@@ -2743,90 +3996,400 @@
         requestAnimationFrame(gameLoop);
     }
 
-    function endGame() {
-        isGameRunning = false;
-        isGamePaused = false;
-        isStartCountdownActive = false;
-        isTimeUpPending = false;
-        closeSettingsModal();
+    // 全画面表示ボタンの配置切り替え（通常時: 画面下中央 / 結果発表時: 中央アクションボタンの右側に退避）
+    function setFullscreenButtonLayout(mode) {
+        const fsContainer = document.getElementById('fullscreen-container');
+        if (!fsContainer) return;
+        if (mode === 'result') {
+            fsContainer.className = 'absolute bottom-4 left-1/2 translate-x-[370px] z-[60] pointer-events-auto flex items-center transition-all duration-300';
+        } else {
+            fsContainer.className = 'absolute bottom-3 left-1/2 -translate-x-1/2 z-[60] pointer-events-auto flex items-center transition-all duration-300';
+        }
+    }
+
+    // 結果発表画面のUI（四隅メーター ＆ ジャッジバナー）の表示/非表示切り替え
+    function updateJudgeUiVisibility(hideUi) {
+        isMapOnlyView = !!hideUi;
+        const judgeUiContent = document.getElementById('judge-ui-content');
+        const textToggleMap = document.getElementById('text-toggle-map');
+        const iconToggleMap = document.getElementById('icon-toggle-map');
+        if (isMapOnlyView) {
+            if (judgeUiContent) {
+                judgeUiContent.classList.add('opacity-0', 'pointer-events-none');
+                judgeUiContent.classList.remove('opacity-100');
+            }
+            if (textToggleMap) textToggleMap.innerText = '結果を表示';
+            if (iconToggleMap) iconToggleMap.innerText = '📋';
+        } else {
+            if (judgeUiContent) {
+                judgeUiContent.classList.remove('opacity-0', 'pointer-events-none');
+                judgeUiContent.classList.add('opacity-100');
+            }
+            if (textToggleMap) textToggleMap.innerText = 'UIを隠す';
+            if (iconToggleMap) iconToggleMap.innerText = '🗺️';
+        }
+    }
+
+    function clearJudgingTimers() {
+        if (judgingAnimFrameId) {
+            cancelAnimationFrame(judgingAnimFrameId);
+            judgingAnimFrameId = null;
+        }
+        judgingTimeouts.forEach(id => clearTimeout(id));
+        judgingTimeouts = [];
+    }
+
+    // タイムアップ処理（ホイッスル鳴動、「そこまで！」表示、HUDフェードアウト、2.2秒間のマップ鑑賞時間）
+    function triggerTimeUp() {
+        if (isTimeUpPending) return;
+        isTimeUpPending = true;
+
+        clearJudgingTimers();
+        stopBGM(); // バトルBGM即時停止
+        playSound('whistle'); // 試合終了ホイッスル（ピピッー！）
+
+        // スプラトゥーン定番の「そこまで！」を大迫力で表示
+        showCountdownDisplay('そこまで！', 'text-amber-300 drop-shadow-[0_0_60px_rgba(251,191,36,1)]');
+
+        // 四隅のインゲームHUD（ステータスパネル、タイマー、ボタン等）をフェードアウトしてマップ全景を見せる！
+        const inGameUI = document.getElementById('in-game-ui');
+        if (inGameUI) inGameUI.classList.add('opacity-0');
+
         const btnInGameSettings = document.getElementById('btn-in-game-settings');
         if (btnInGameSettings) btnInGameSettings.classList.add('hidden');
         const btnBackTitle = document.getElementById('btn-back-title');
         if (btnBackTitle) btnBackTitle.classList.add('hidden');
-        hideCountdownDisplay();
-        updateDangerFlash(60); // 赤点滅をリセット
-        stopBGM(); // バトルBGM停止
-        playSound('fanfare'); // 勝利ファンファーレ
 
-        // ファンファーレ（約1.0秒）演奏後にリザルトBGMを開始！
-        setTimeout(() => {
+        // 1.5秒後に「そこまで！」文字をフェードアウト
+        judgingTimeouts.push(setTimeout(() => {
+            hideCountdownDisplay();
+        }, 1500));
+
+        // 2.2秒後にスプラトゥーン風ジャッジ演出開始（マップ全体を心ゆくまで眺めた後）
+        judgingTimeouts.push(setTimeout(() => {
+            if (isTimeUpPending) {
+                startSplatoonJudging();
+            }
+        }, 2200));
+    }
+
+    // スプラトゥーン風ジャッジ演出（インク集計メーター競り上がりアニメーション）
+    function startSplatoonJudging() {
+        try {
+            isGameRunning = false;
+            isGamePaused = false;
+            isStartCountdownActive = false;
+            closeSettingsModal();
+            hideCountdownDisplay();
+            updateDangerFlash(60);
+
+            // 全画面表示ボタンを中央下部アクションボタンの右側に退避
+            setFullscreenButtonLayout('result');
+            // ジャッジUIを表示状態に初期化
+            updateJudgeUiVisibility(false);
+
             const overlay = document.getElementById('overlay');
-            if (overlay && !overlay.classList.contains('hidden') && !isGameRunning) {
-                startBGM('result');
+            const judgeBanner = document.getElementById('judge-banner');
+            const judgeBannerIcon = document.getElementById('judge-banner-icon');
+            const judgeBannerText = document.getElementById('judge-banner-text');
+            const resultText = document.getElementById('result-text');
+            const resultSubText = document.getElementById('result-subtext');
+            const resultAnnounce = document.getElementById('result-announcement');
+            const resultActions = document.getElementById('result-actions');
+            const confettiContainer = document.getElementById('confetti-container');
+
+            if (confettiContainer) confettiContainer.innerHTML = '';
+
+            // ジャッジバナーの初期化（集計中...）
+            if (judgeBanner) {
+                judgeBanner.className = 'flex items-center gap-3 px-8 py-2 rounded-full bg-slate-900/90 border-2 border-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.6)] text-2xl font-black text-yellow-300 tracking-wider animate-pulse backdrop-blur-md';
             }
-        }, 1100);
+            if (judgeBannerIcon) judgeBannerIcon.innerText = '⚖️';
+            if (judgeBannerText) judgeBannerText.innerText = 'ジャッジ集計中...';
 
-        const pauseOverlay = document.getElementById('pause-overlay');
-        if (pauseOverlay) pauseOverlay.classList.add('hidden');
-        updateUI();
-        
-        const overlay = document.getElementById('overlay');
-        const resultText = document.getElementById('result-text');
-        const resultSubText = document.getElementById('result-subtext');
-        const resultRanking = document.getElementById('result-ranking');
-        
-        overlay.classList.remove('hidden');
-        
-        // 参加キャラクターをスコア降順でソート
-        const ranking = [...allCharacters].sort((a, b) => (b.scorePercent || 0) - (a.scorePercent || 0));
-        const topScore = ranking.length > 0 ? ranking[0].scorePercent : 0;
-        const winners = ranking.filter(c => c.scorePercent === topScore);
-
-        if (winners.length === 1) {
-            const w = winners[0];
-            const pInfo = PLAYER_COLORS[w.colorId];
-            resultText.innerText = `${w.name} の勝利！`;
-            resultText.className = `text-8xl font-black mb-3 ${pInfo.textClass} drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] tracking-tighter text-center`;
-            resultSubText.innerText = `見事トップでフィニッシュ！ (${w.scorePercent}%)`;
-        } else {
-            resultText.innerText = "引き分け！";
-            resultText.className = "text-8xl font-black mb-3 text-yellow-400 drop-shadow-[0_10px_20px_rgba(234,179,8,0.6)] tracking-tighter text-center";
-            const winnerNames = winners.map(w => w.name).join(' & ');
-            resultSubText.innerText = `${winnerNames} が同率トップ！ (${topScore}%)`;
-        }
-
-        // ランキング一覧のHTML構築 (同率スコアは同じ順位：1位、1位、2位、3位形式)
-        let rankingHtml = '<div class="text-xl font-black text-slate-300 mb-2 border-b border-slate-700 pb-2 flex justify-between px-3"><span>順位・プレイヤー</span><span>塗りスコア</span></div>';
-        const medals = ['🥇', '🥈', '🥉'];
-        let currentRank = 1;
-        let lastScore = null;
-        ranking.forEach((char, idx) => {
-            const pInfo = PLAYER_COLORS[char.colorId] || { fill: '#fff', textClass: 'text-white' };
-            const currentScore = char.scorePercent || 0;
-            if (idx > 0 && currentScore < lastScore) {
-                currentRank++;
+            if (resultAnnounce) {
+                resultAnnounce.classList.add('opacity-0');
+                resultAnnounce.classList.remove('opacity-100');
             }
-            lastScore = currentScore;
+            if (resultText) resultText.innerText = '';
+            if (resultSubText) resultSubText.innerText = '';
+            if (resultActions) {
+                resultActions.classList.add('opacity-0');
+                resultActions.classList.remove('opacity-100');
+            }
 
-            const medal = medals[currentRank - 1] || '';
-            const isHuman = char.isHuman;
-            const borderHighlight = isHuman ? 'border-2 border-emerald-400/80 shadow-md bg-slate-900/90' : 'bg-slate-800/60 border border-slate-700/60';
-            const rankColorClass = currentRank === 1 ? 'text-yellow-400' : 'text-slate-300';
-            rankingHtml += `
-                <div class="flex items-center justify-between p-3.5 rounded-2xl ${borderHighlight} transition-all">
-                    <div class="flex items-center gap-4">
-                        <span class="text-2xl font-black ${rankColorClass} flex items-center w-24">
-                            <span class="w-8 inline-block text-center shrink-0">${medal}</span>
-                            <span>${currentRank}位</span>
-                        </span>
-                        <span class="w-4 h-4 rounded-full" style="background-color: ${pInfo.fill}; box-shadow: 0 0 10px ${pInfo.fill}"></span>
-                        <span class="text-2xl font-black text-white">${char.name} ${isHuman ? `<span class="text-xs bg-slate-700 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-400/40 ml-1 font-bold">${pInfo.keyName}キー</span>` : ''}</span>
+            // 四隅カードの初期化（全スロットを一旦クリアして非表示に）
+            for (let s = 1; s <= 4; s++) {
+                const card = document.getElementById(`judge-card-${s}`);
+                if (card) {
+                    card.innerHTML = '';
+                    card.classList.add('hidden');
+                }
+            }
+
+            // オーバーレイ表示（完全透過背景で中央マップが100%見えている）
+            if (overlay) overlay.classList.remove('hidden');
+
+            // 参加中のキャラクターを取得
+            const activeCharacters = allCharacters.filter(c => slotModes[c.slot] !== 'off');
+
+            // 最新のスコアを取得
+            const { scores: currentScores, totalFloorTiles: totalTiles } = calculateCurrentPaintScores();
+
+            // 各キャラクターの目標塗りパーセンテージ（小数点第1位まで精密計算）
+            const participantData = activeCharacters.map(char => {
+                const tileCount = currentScores[char.colorId] || 0;
+                const precisePercent = Number(((tileCount / totalTiles) * 100).toFixed(1));
+                return {
+                    char,
+                    colorId: char.colorId,
+                    slot: char.slot,
+                    pInfo: PLAYER_COLORS[char.colorId] || { fill: '#ffffff', textClass: 'text-white', keyName: '?' },
+                    targetPercent: precisePercent
+                };
+            });
+
+            // 四隅メーターカードHTMLの構築（マップ余白内に美しく収まる幅410pxカード）
+            participantData.forEach(p => {
+                const cardElem = document.getElementById(`judge-card-${p.slot}`);
+                if (!cardElem) return;
+                const isHuman = p.char.isHuman;
+                cardElem.classList.remove('hidden');
+                cardElem.innerHTML = `
+                    <div id="judge-row-${p.slot}" class="bg-slate-900/95 p-4 rounded-3xl border-2 border-slate-700/80 shadow-[0_8px_30px_rgba(0,0,0,0.7)] backdrop-blur-md flex flex-col gap-2.5 transition-all duration-300 relative overflow-hidden">
+                        <!-- ヘッダー行: アイコン + プレイヤー名 + キー/CPUバッジ + パーセンテージ数値 -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <span class="w-6 h-6 rounded-full shrink-0 shadow-md border-2 border-white/60" style="background-color: ${p.pInfo.fill}; box-shadow: 0 0 10px ${p.pInfo.fill}"></span>
+                                <span class="text-3xl font-black text-white truncate max-w-[160px] leading-tight">${p.char.name}</span>
+                                ${isHuman ? `<span class="text-xs bg-slate-800 text-emerald-300 px-2.5 py-1 rounded-full border border-emerald-400/40 font-bold shrink-0">${p.pInfo.keyName}キー</span>` : '<span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full font-bold shrink-0">CPU</span>'}
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span id="judge-val-${p.slot}" class="text-4xl font-black ${p.pInfo.textClass} tracking-tight">0.0%</span>
+                            </div>
+                        </div>
+
+                        <!-- プログレスバー本体（鮮やかなプレイヤーカラー ＋ スプラトゥーン風インクストライプ） -->
+                        <div class="w-full bg-slate-950/90 h-9 rounded-full border-2 border-slate-700 overflow-hidden relative shadow-inner p-1">
+                            <div id="judge-bar-${p.slot}" class="h-full rounded-full relative flex items-center justify-end px-3 animate-ink-stripe transition-none"
+                                 style="width: 0%; background-color: ${p.pInfo.fill}; background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0, rgba(255,255,255,0.28) 12px, transparent 12px, transparent 24px), linear-gradient(to bottom, rgba(255,255,255,0.22), rgba(0,0,0,0.2)); box-shadow: 0 0 18px ${p.pInfo.fill}cc;">
+                            </div>
+                        </div>
+
+                        <!-- 勝者スタンプ / 順位領域 -->
+                        <div id="judge-stamp-${p.slot}" class="min-h-[28px] flex items-center justify-center"></div>
                     </div>
-                    <span class="text-3xl font-black ${pInfo.textClass}">${currentScore}%</span>
-                </div>
-            `;
-        });
-        if (resultRanking) resultRanking.innerHTML = rankingHtml;
+                `;
+            });
+
+            // 集計アニメーション（0%から目標%へ競い合うように伸長）
+            const animDuration = 2200; // 2.2秒
+            const animStartTime = performance.now();
+            let lastSoundTime = 0;
+
+            function animateMeters(now) {
+                const elapsed = now - animStartTime;
+                const progress = Math.min(1, elapsed / animDuration);
+                // スプラトゥーン風 3次イージング
+                const ease = 1 - Math.pow(1 - progress, 3);
+
+                // カウントアップ音（約70msごとにピピッ）
+                if (elapsed - lastSoundTime >= 70 && progress < 0.98) {
+                    lastSoundTime = elapsed;
+                    playSound('count_blip');
+                }
+
+                participantData.forEach(p => {
+                    const curVal = Number((p.targetPercent * ease).toFixed(1));
+                    const barElem = document.getElementById(`judge-bar-${p.slot}`);
+                    const valElem = document.getElementById(`judge-val-${p.slot}`);
+                    if (barElem) barElem.style.width = Math.min(100, (p.targetPercent * ease)) + '%';
+                    if (valElem) valElem.innerText = curVal.toFixed(1) + '%';
+                });
+
+                if (progress < 1) {
+                    judgingAnimFrameId = requestAnimationFrame(animateMeters);
+                } else {
+                    // 集計完了！目標値に最終確定
+                    participantData.forEach(p => {
+                        const barElem = document.getElementById(`judge-bar-${p.slot}`);
+                        const valElem = document.getElementById(`judge-val-${p.slot}`);
+                        if (barElem) barElem.style.width = Math.min(100, p.targetPercent) + '%';
+                        if (valElem) valElem.innerText = p.targetPercent.toFixed(1) + '%';
+                    });
+
+                    // 一瞬の緊張感あふれるタメ（350ms）の後、勝者発表！
+                    judgingTimeouts.push(setTimeout(() => {
+                        finishJudging(participantData);
+                    }, 350));
+                }
+            }
+
+            judgingAnimFrameId = requestAnimationFrame(animateMeters);
+        } catch (err) {
+            console.error('startSplatoonJudging error:', err);
+            // フォールバック: ボタンを即時表示
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.classList.remove('hidden');
+            const resultActions = document.getElementById('result-actions');
+            if (resultActions) {
+                resultActions.classList.remove('opacity-0');
+                resultActions.classList.add('opacity-100');
+            }
+        }
+    }
+
+    // 勝者発表演出（ドーーーン！、ファンファーレ、紙吹雪、WINNERスタンプ）
+    function finishJudging(participantData) {
+        try {
+            playSound('winner_gong'); // 重厚なドーーーン音！
+            playSound('fanfare');     // ファンファーレ！
+            createConfetti();         // 紙吹雪ドカン！
+
+            const judgeBanner = document.getElementById('judge-banner');
+            const judgeBannerIcon = document.getElementById('judge-banner-icon');
+            const judgeBannerText = document.getElementById('judge-banner-text');
+            const resultText = document.getElementById('result-text');
+            const resultSubText = document.getElementById('result-subtext');
+            const resultActions = document.getElementById('result-actions');
+
+            if (!participantData || participantData.length === 0) {
+                if (resultActions) {
+                    resultActions.classList.remove('opacity-0');
+                    resultActions.classList.add('opacity-100');
+                }
+                return;
+            }
+
+            // 勝者判定（同率トップ対応）
+            const topScore = Math.max(...participantData.map(p => p.targetPercent), 0);
+            const winners = participantData.filter(p => p.targetPercent === topScore);
+            const sortedByScore = [...participantData].sort((a, b) => b.targetPercent - a.targetPercent);
+            const resultAnnounce = document.getElementById('result-announcement');
+
+            if (winners.length === 1) {
+                const winner = winners[0];
+                if (judgeBanner) {
+                    judgeBanner.className = 'flex items-center gap-3 px-10 py-2.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-400 border-2 border-yellow-200 shadow-[0_0_35px_rgba(250,204,21,0.9)] text-3xl font-black text-slate-950 tracking-wider animate-bounce backdrop-blur-md';
+                }
+                if (judgeBannerIcon) judgeBannerIcon.innerText = '🏆';
+                if (judgeBannerText) judgeBannerText.innerText = '勝者決定！';
+
+                if (resultText) {
+                    resultText.innerText = `${winner.char.name} の勝利！`;
+                    resultText.className = `text-2xl font-black drop-shadow-md leading-none ${winner.pInfo.textClass}`;
+                }
+                if (resultSubText) {
+                    resultSubText.innerText = `塗り面積: ${winner.targetPercent}% でトップフィニッシュ！`;
+                }
+            } else {
+                // 引き分け
+                if (judgeBanner) {
+                    judgeBanner.className = 'flex items-center gap-3 px-10 py-2.5 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 border-2 border-indigo-200 shadow-[0_0_35px_rgba(99,102,241,0.9)] text-3xl font-black text-slate-950 tracking-wider animate-bounce backdrop-blur-md';
+                }
+                if (judgeBannerIcon) judgeBannerIcon.innerText = '🤝';
+                if (judgeBannerText) judgeBannerText.innerText = '同率ドロー！';
+
+                if (resultText) {
+                    resultText.innerText = '引き分け！';
+                    resultText.className = 'text-2xl font-black drop-shadow-md leading-none text-yellow-300';
+                }
+                if (resultSubText) {
+                    const names = winners.map(w => w.char.name).join(' & ');
+                    resultSubText.innerText = `${names} が同率トップ！ (${topScore}%)`;
+                }
+            }
+
+            if (resultAnnounce) {
+                resultAnnounce.classList.remove('opacity-0');
+                resultAnnounce.classList.add('opacity-100');
+            }
+
+            // 各プレイヤーカードの演出（勝者にゴールド枠とWINNERスタンプ、他は順位）
+            participantData.forEach(p => {
+                const isWinner = winners.some(w => w.slot === p.slot);
+                const rowElem = document.getElementById(`judge-row-${p.slot}`);
+                const stampElem = document.getElementById(`judge-stamp-${p.slot}`);
+                if (isWinner) {
+                    if (rowElem) {
+                        rowElem.classList.remove('border-slate-700/80');
+                        rowElem.classList.add('border-yellow-400', 'bg-slate-900/95', 'shadow-[0_0_35px_rgba(250,204,21,0.7)]', 'scale-[1.03]');
+                    }
+                    if (stampElem) {
+                        stampElem.innerHTML = `
+                            <span class="inline-flex items-center gap-1 px-4 py-0.5 bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 font-black text-xl rounded-full border-2 border-white shadow-[0_0_20px_rgba(250,204,21,0.8)] animate-winner-stamp">
+                                👑 WINNER!
+                            </span>
+                        `;
+                    }
+                } else {
+                    const rank = sortedByScore.findIndex(s => s.targetPercent === p.targetPercent) + 1;
+                    if (stampElem) {
+                        stampElem.innerHTML = `
+                            <span class="text-sm font-bold text-slate-400 tracking-wider">
+                                ${rank}位 (${p.targetPercent}%)
+                            </span>
+                        `;
+                    }
+                }
+            });
+
+            // 1.1秒後にリザルトBGM開始 & ボタン群表示
+            judgingTimeouts.push(setTimeout(() => {
+                const overlay = document.getElementById('overlay');
+                if (overlay && !overlay.classList.contains('hidden') && !isGameRunning) {
+                    startBGM('result');
+                }
+                if (resultActions) {
+                    resultActions.classList.remove('opacity-0');
+                    resultActions.classList.add('opacity-100');
+                }
+            }, 1100));
+        } catch (err) {
+            console.error('finishJudging error:', err);
+            const resultActions = document.getElementById('result-actions');
+            if (resultActions) {
+                resultActions.classList.remove('opacity-0');
+                resultActions.classList.add('opacity-100');
+            }
+        }
+    }
+
+    // 紙吹雪（コンフェッティ）生成
+    function createConfetti() {
+        const container = document.getElementById('confetti-container');
+        if (!container) return;
+        container.innerHTML = '';
+        const colors = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#fbbf24', '#ffffff', '#ec4899', '#a855f7'];
+        const count = 75;
+        for (let i = 0; i < count; i++) {
+            const confetti = document.createElement('div');
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const left = Math.random() * 100;
+            const width = 8 + Math.random() * 12;
+            const height = 12 + Math.random() * 18;
+            const delay = Math.random() * 1.5;
+            const duration = 2.0 + Math.random() * 2.0;
+
+            confetti.style.position = 'absolute';
+            confetti.style.left = `${left}%`;
+            confetti.style.top = '-20px';
+            confetti.style.width = `${width}px`;
+            confetti.style.height = `${height}px`;
+            confetti.style.backgroundColor = color;
+            confetti.style.borderRadius = '3px';
+            confetti.style.opacity = '1';
+            confetti.style.boxShadow = `0 0 8px ${color}`;
+            confetti.style.animation = `confettiFall ${duration}s cubic-bezier(0.25, 0.46, 0.45, 0.94) ${delay}s infinite`;
+            confetti.style.zIndex = '5';
+
+            container.appendChild(confetti);
+        }
+    }
+
+    // 互換用 endGame ラッパー
+    function endGame() {
+        triggerTimeUp();
     }
 
     document.getElementById('btn-restart').addEventListener('click', startGame);
@@ -2839,15 +4402,46 @@
         });
     }
 
+    const btnToggleViewMap = document.getElementById('btn-toggle-view-map');
+    if (btnToggleViewMap) {
+        btnToggleViewMap.addEventListener('click', (e) => {
+            e.stopPropagation();
+            updateJudgeUiVisibility(!isMapOnlyView);
+        });
+    }
+
     // タイトルへ戻る処理
     function goToTitle() {
+        clearJudgingTimers();
         isGameRunning = false;
         isGamePaused = false;
         isStartCountdownActive = false;
         isTimeUpPending = false;
+        setFullscreenButtonLayout('normal');
+        updateJudgeUiVisibility(false);
         hideCountdownDisplay();
         updateDangerFlash(60); // 赤点滅をリセット
         startBGM('title'); // タイトルBGM再開
+
+        const inGameUI = document.getElementById('in-game-ui');
+        if (inGameUI) inGameUI.classList.remove('opacity-0');
+
+        const confettiContainer = document.getElementById('confetti-container');
+        if (confettiContainer) confettiContainer.innerHTML = '';
+
+        const resultAnnounce = document.getElementById('result-announcement');
+        if (resultAnnounce) {
+            resultAnnounce.classList.add('opacity-0');
+            resultAnnounce.classList.remove('opacity-100');
+        }
+
+        for (let s = 1; s <= 4; s++) {
+            const card = document.getElementById(`judge-card-${s}`);
+            if (card) {
+                card.innerHTML = '';
+                card.classList.add('hidden');
+            }
+        }
 
         const pauseOverlay = document.getElementById('pause-overlay');
         if (pauseOverlay) pauseOverlay.classList.add('hidden');
@@ -3037,6 +4631,23 @@
         if (textSettingsSpeedVal) textSettingsSpeedVal.innerText = `${val}%`;
     }
 
+    // プレイヤー回転速度UIの同期
+    function syncRotateUI() {
+        const sliderRotate = document.getElementById('slider-rotate');
+        const sliderSettingsRotate = document.getElementById('slider-settings-rotate');
+        const textRotateVal = document.getElementById('text-rotate-val');
+        const textSettingsRotateVal = document.getElementById('text-settings-rotate-val');
+
+        // sliderVal: 10 (遅い: 1.00秒) 〜 60 (標準: 0.50秒) 〜 100 (速い: 0.10秒)
+        const sliderVal = Math.min(100, Math.max(10, Math.round((110 - Math.round(playerRotateInterval * 100)) / 5) * 5));
+        const displayText = `${playerRotateInterval.toFixed(2)}秒`;
+
+        if (sliderRotate) sliderRotate.value = sliderVal;
+        if (sliderSettingsRotate) sliderSettingsRotate.value = sliderVal;
+        if (textRotateVal) textRotateVal.innerText = displayText;
+        if (textSettingsRotateVal) textSettingsRotateVal.innerText = displayText;
+    }
+
     // 全設定UIを一括同期
     function syncAllSettingsUI() {
         syncAutoBombUI();
@@ -3044,6 +4655,7 @@
         syncGuideArrowUI();
         syncInfiniteBombUI();
         syncSpeedUI();
+        syncRotateUI();
     }
 
     // トグル・変更アクション
@@ -3298,6 +4910,7 @@
         isGuideArrow = true;
         isInfiniteBomb = false;
         playerSpeedMultiplier = 1.0;
+        playerRotateInterval = 0.5;
 
         // 3. 対戦スロット設定を初期値にリセット (デフォルト: 全員プレイヤー操作)
         slotModes[1] = 'human';
@@ -3372,6 +4985,30 @@
         }
     }
 
+    // プレイヤー回転速度スライダーの同期＆設定（タイトル画面・設定画面）
+    function setupRotateControls() {
+        const sliderRotate = document.getElementById('slider-rotate');
+        const sliderSettingsRotate = document.getElementById('slider-settings-rotate');
+
+        function updateRotate(val) {
+            // val: 10 (遅い: 1.00秒) 〜 60 (標準: 0.50秒) 〜 100 (速い: 0.10秒)
+            const num = parseInt(val, 10);
+            playerRotateInterval = Math.round((110 - num)) / 100;
+            // 参加中キャラの回転間隔も即時更新
+            allCharacters.forEach(c => {
+                if (c.isHuman) c.rotateInterval = playerRotateInterval;
+            });
+            syncRotateUI();
+        }
+
+        if (sliderRotate) {
+            sliderRotate.addEventListener('input', (e) => updateRotate(e.target.value));
+        }
+        if (sliderSettingsRotate) {
+            sliderSettingsRotate.addEventListener('input', (e) => updateRotate(e.target.value));
+        }
+    }
+
     // 初回の画面操作（クリックやキー入力）でAudioContext初期化＆タイトルBGM開始
     function tryStartTitleBGM() {
         initAudio();
@@ -3394,6 +5031,7 @@
         drawTitleBackground();
         setupVolumeControls();
         setupSpeedControls();
+        setupRotateControls();
     }, 100);
 
 </script>
